@@ -174,105 +174,235 @@ const App = (() => {
      It is a screen rather than a banner on purpose: there is nothing behind
      it to look at, because nothing has been read.                        */
 
-  function renderSignIn(canSignIn, accountSignIn = false) {
+  const EYE_ICON = 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z';
+  const EYE_OFF_ICON = 'M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z';
+  const eyeSvg = d => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="${d}"/></svg>`;
+
+  /** A password input with a show / hide button. */
+  function passwordField(id, label, placeholder, autocomplete) {
+    return `
+      <div class="field">
+        <label for="${id}">${label}</label>
+        <div class="login__pw">
+          <input class="input" type="password" id="${id}" placeholder="${placeholder}" autocomplete="${autocomplete}" maxlength="128"
+                 aria-describedby="${id}-err">
+          <button type="button" class="login__eye" data-eye="${id}" aria-label="Show password" aria-pressed="false">${eyeSvg(EYE_ICON)}</button>
+        </div>
+        <span class="field__error" id="${id}-err"></span>
+      </div>`;
+  }
+  function bindEyes(root) {
+    root.querySelectorAll('[data-eye]').forEach(btn => btn.addEventListener('click', () => {
+      const input = root.querySelector(`#${btn.dataset.eye}`);
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      btn.innerHTML = eyeSvg(show ? EYE_OFF_ICON : EYE_ICON);
+      input.focus();
+    }));
+  }
+
+  /**
+   * The sign-in screen (0019). One field takes a username, an e-mail address
+   * or a Staff ID; the server works out which. Every refusal reads the same,
+   * because the server does not say which part was wrong. While the shared
+   * workshop passphrase is still allowed, it stays reachable as a secondary
+   * "legacy" option, so nobody is locked out during the move to personal
+   * accounts. Nothing typed is ever kept: the password fields are cleared
+   * whether the sign-in worked or not.
+   */
+  function renderSignIn(canSignIn, accountSignIn = false, sharedPassphrase = true) {
+    const root = document.body.dataset.root || '';
     const gate = document.createElement('div');
     gate.className = 'app-gate';
-    // Two ways in, one form: the workshop passphrase (as always) or, where the
-    // server offers it, a staff member's own username and password. Only one
-    // set of fields is visible -- and sent -- at a time.
+    if (!canSignIn) {
+      gate.innerHTML = `
+        <div class="login">
+          <img class="login__logo" src="${root}assets/logo/logo-white.png" alt="Taqwa Automobile">
+          <div class="card app-gate__card"><h1 class="login__title">Taqwa Autos CRM</h1>
+            <p class="muted-note">This server is not set up for signing in yet. An administrator needs to configure it.</p></div>
+        </div>`;
+      document.body.appendChild(gate);
+      return;
+    }
+    const legacyOnly = !accountSignIn;
     gate.innerHTML = `
-      <form class="card app-gate__card" id="signInForm">
-        <img class="app-gate__logo" src="${document.body.dataset.root || ''}assets/logo/logo-white.png" alt="Taqwa Automobile">
-        <h1 class="app-gate__title">Workshop sign in</h1>
-        ${canSignIn ? `
-          <div class="field" data-mode="passphrase">
-            <label for="gate-passphrase">Passphrase</label>
-            <input class="input" type="password" id="gate-passphrase" autocomplete="current-password"
-                   autofocus required>
-            <span class="field__error" data-err="passphrase"></span>
+      <div class="login">
+        <img class="login__logo" src="${root}assets/logo/logo-white.png" alt="Taqwa Automobile">
+        <form class="card app-gate__card login__card" id="signInForm" novalidate aria-labelledby="loginTitle">
+          <div class="login__head">
+            <h1 class="login__title" id="loginTitle">Taqwa Autos CRM</h1>
+            <p class="login__subtitle">Sign in to your account</p>
           </div>
-          ${accountSignIn ? `
-          <div data-mode="account" hidden>
+          <div data-mode="account"${legacyOnly ? ' hidden' : ''}>
             <div class="field">
-              <label for="gate-username">Username</label>
-              <input class="input" type="text" id="gate-username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32">
+              <label for="login-id">Username / Email / Staff ID</label>
+              <input class="input" type="text" id="login-id" placeholder="Enter username, email or staff ID"
+                     autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="160" aria-describedby="login-id-err">
+              <span class="field__error" id="login-id-err"></span>
             </div>
-            <div class="field">
-              <label for="gate-password">Password</label>
-              <input class="input" type="password" id="gate-password" autocomplete="current-password" maxlength="128">
-              <span class="field__error" data-err="account"></span>
-            </div>
-          </div>` : ''}
-          <button class="btn btn--primary app-gate__submit" type="button" data-signin>Sign in</button>
-          ${accountSignIn ? `<button class="btn btn--ghost btn--sm app-gate__switch" type="button" data-switch aria-pressed="false">Sign in with my staff account</button>` : ''}`
-        : `<p class="muted-note">This server has no passphrase configured, so there is no way to
-             sign in from a browser. An administrator needs to set one.</p>`}
-      </form>`;
+            ${passwordField('login-pw', 'Password', 'Enter password', 'current-password')}
+          </div>
+          <div data-mode="passphrase"${legacyOnly ? '' : ' hidden'}>
+            ${passwordField('gate-passphrase', 'Workshop passphrase', 'Enter the shared passphrase', 'current-password')}
+          </div>
+          <p class="login__error" id="loginError" role="alert"></p>
+          <button class="btn btn--primary login__submit" type="submit" data-signin>Login</button>
+          <div class="login__links">
+            <button type="button" class="login__link" data-forgot aria-expanded="false" aria-controls="forgotPanel">Forgot password?</button>
+          </div>
+          <div class="login__forgot" id="forgotPanel" hidden>
+            <strong>Forgot your password?</strong>
+            <p>Ask a workshop administrator to reset it. They set a temporary password, and you choose your own the next time you sign in &mdash; nobody else ever knows it.</p>
+            <p class="login__fine">Reset by e-mail is not available: the system has no verified e-mail delivery service connected.</p>
+          </div>
+          ${accountSignIn && sharedPassphrase ? `<button class="login__legacy" type="button" data-switch aria-pressed="false">Use the shared workshop passphrase (legacy)</button>` : ''}
+        </form>
+      </div>`;
     document.body.appendChild(gate);
-    if (!canSignIn) return;
 
     const form = gate.querySelector('#signInForm');
-    const input = gate.querySelector('#gate-passphrase');
-    const err = gate.querySelector('[data-err="passphrase"]');
+    const idInput = gate.querySelector('#login-id');
+    const pwInput = gate.querySelector('#login-pw');
+    const phrase = gate.querySelector('#gate-passphrase');
     const button = gate.querySelector('[data-signin]');
+    const error = gate.querySelector('#loginError');
     const switcher = gate.querySelector('[data-switch]');
-    const user = gate.querySelector('#gate-username');
-    const pass = gate.querySelector('#gate-password');
-    const accountErr = gate.querySelector('[data-err="account"]');
-    let useAccount = false;
+    let useAccount = !legacyOnly;
+    bindEyes(gate);
+    (useAccount ? idInput : phrase).focus();
+
+    const setErr = (id, text) => { const el = gate.querySelector(`#${id}-err`); if (el) el.textContent = text || ''; };
+    const clearErrors = () => { ['login-id', 'login-pw', 'gate-passphrase'].forEach(id => setErr(id, '')); error.textContent = ''; };
+
+    gate.querySelector('[data-forgot]').addEventListener('click', e => {
+      const panel = gate.querySelector('#forgotPanel');
+      panel.hidden = !panel.hidden;
+      e.currentTarget.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+    });
     if (switcher) {
       switcher.addEventListener('click', () => {
         useAccount = !useAccount;
         gate.querySelector('[data-mode="passphrase"]').hidden = useAccount;
         gate.querySelector('[data-mode="account"]').hidden = !useAccount;
-        switcher.textContent = useAccount ? 'Sign in with the workshop passphrase' : 'Sign in with my staff account';
-        switcher.setAttribute('aria-pressed', useAccount ? 'true' : 'false');
+        switcher.textContent = useAccount ? 'Use the shared workshop passphrase (legacy)' : 'Sign in with my own account';
+        switcher.setAttribute('aria-pressed', useAccount ? 'false' : 'true');
         // Nothing typed for one way in is kept when switching to the other.
-        input.value = ''; user.value = ''; pass.value = '';
-        err.textContent = ''; accountErr.textContent = '';
-        (useAccount ? user : input).focus();
+        idInput.value = ''; pwInput.value = ''; phrase.value = '';
+        clearErrors();
+        (useAccount ? idInput : phrase).focus();
       });
     }
 
-    // The work hangs off the BUTTON's click, not the form's submit. A submit
-    // handler wrapped in Utils.saving cannot stop the navigation: the wrapper
-    // awaits before the handler body runs, so preventDefault() would come too
-    // late and the browser would have submitted the form already. Hanging it
-    // on the click also means the control Utils.saving holds is the button
-    // rather than the form, which it would otherwise overwrite with "Saving…".
-    const submit = Utils.saving(async () => {
-      err.textContent = '';
-      if (accountErr) accountErr.textContent = '';
+    let busy = false;
+    const setBusy = on => {
+      busy = on;
+      button.disabled = on;
+      button.textContent = on ? 'Signing in…' : 'Login';
+      form.setAttribute('aria-busy', on ? 'true' : 'false');
+    };
+
+    // preventDefault() runs at once, before any await, so the browser never
+    // submits the form itself; Enter in any field submits the same way.
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      if (busy) return;
+      clearErrors();
       if (useAccount) {
-        const res = await Storage.signInWithAccount(user.value, pass.value);
-        // Like the passphrase, the password is never held: cleared either way.
-        pass.value = '';
+        const id = idInput.value.trim();
+        const pw = pwInput.value;
+        if (!id) setErr('login-id', 'Enter your username, email or staff ID.');
+        if (!pw) setErr('login-pw', 'Enter your password.');
+        if (!id || !pw) { (!id ? idInput : pwInput).focus(); return; }
+        setBusy(true);
+        let res;
+        try { res = await Storage.signInWithIdentifier(id, pw); }
+        catch (e) { res = { ok: false, message: 'Signing in is not possible right now. Please try again in a moment.' }; }
+        pwInput.value = '';
         if (!res.ok) {
-          accountErr.textContent = res.message || 'That username and password were not accepted.';
-          pass.focus();
+          setBusy(false);
+          error.textContent = res.code === 'hydrate_failed'
+            ? 'You are signed in, but the workshop data could not be loaded. Please reload the page.'
+            : (res.message || 'The sign-in details are not correct. Check them and try again.');
+          pwInput.focus();
           return;
         }
-        location.reload();
+        // To the dashboard -- or, for a password someone else set, to choosing a new one first.
+        if (res.passwordChange) location.reload();
+        else location.href = `${root}index.html`;
         return;
       }
-      const res = await Storage.signIn(input.value);
-      // The passphrase is never held anywhere, including here: the field is
-      // cleared whether it worked or not.
-      input.value = '';
+      if (!phrase.value) { setErr('gate-passphrase', 'Enter the passphrase.'); phrase.focus(); return; }
+      setBusy(true);
+      const res = await Storage.signIn(phrase.value);
+      // The passphrase is never held anywhere, including here.
+      phrase.value = '';
       if (!res.ok) {
-        err.textContent = res.message || 'That passphrase was not accepted.';
-        input.focus();
+        setBusy(false);
+        error.textContent = res.message || 'That passphrase was not accepted.';
+        phrase.focus();
         return;
       }
-      // A reload rather than a re-render: the page module already ran while
-      // locked and drew empty tables, and re-running the whole startup is
-      // both simpler and surer than teaching thirteen modules to redraw.
-      location.reload();
+      location.href = `${root}index.html`;
     });
+  }
 
-    button.addEventListener('click', submit);
-    // Enter in the field still signs in; the form itself never navigates.
-    form.addEventListener('submit', (ev) => { ev.preventDefault(); button.click(); });
+  /**
+   * Choosing a new password (0019): shown after signing in with a password
+   * someone else set -- a new account, or an administrator's reset. Nothing
+   * else works until it is done, on the server as well as here.
+   */
+  function renderPasswordChange() {
+    const root = document.body.dataset.root || '';
+    const me = Storage.account || {};
+    const gate = document.createElement('div');
+    gate.className = 'app-gate';
+    gate.innerHTML = `
+      <div class="login">
+        <img class="login__logo" src="${root}assets/logo/logo-white.png" alt="Taqwa Automobile">
+        <form class="card app-gate__card login__card" id="pwChangeForm" novalidate aria-labelledby="pwTitle">
+          <div class="login__head">
+            <h1 class="login__title" id="pwTitle">Choose your own password</h1>
+            <p class="login__subtitle">${Utils.esc(me.name || me.username || 'Your account')}: your password was set by an administrator. Choose a new one that only you know to continue.</p>
+          </div>
+          ${passwordField('pw-current', 'Current (temporary) password', 'Enter the password you signed in with', 'current-password')}
+          ${passwordField('pw-new', 'New password', 'At least 10 characters', 'new-password')}
+          ${passwordField('pw-repeat', 'Repeat new password', 'Type the new password again', 'new-password')}
+          <p class="login__error" id="pwError" role="alert"></p>
+          <button class="btn btn--primary login__submit" type="submit" data-save>Save password</button>
+          <div class="login__links"><button type="button" class="login__link" data-out>Sign out</button></div>
+        </form>
+      </div>`;
+    document.body.appendChild(gate);
+    bindEyes(gate);
+    const form = gate.querySelector('#pwChangeForm');
+    const cur = gate.querySelector('#pw-current'), nw = gate.querySelector('#pw-new'), rep = gate.querySelector('#pw-repeat');
+    const btn = gate.querySelector('[data-save]'), error = gate.querySelector('#pwError');
+    const setErr = (id, t) => { gate.querySelector(`#${id}-err`).textContent = t || ''; };
+    cur.focus();
+    gate.querySelector('[data-out]').addEventListener('click', async () => { await Storage.signOut(); location.reload(); });
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      if (btn.disabled) return;
+      ['pw-current', 'pw-new', 'pw-repeat'].forEach(id => setErr(id, '')); error.textContent = '';
+      if (!cur.value) { setErr('pw-current', 'Enter the password you signed in with.'); cur.focus(); return; }
+      if (nw.value.length < 10) { setErr('pw-new', 'Use at least 10 characters.'); nw.focus(); return; }
+      if (nw.value !== rep.value) { setErr('pw-repeat', 'The two new passwords do not match.'); rep.focus(); return; }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      const res = await Api.changePassword(cur.value, nw.value);
+      cur.value = ''; nw.value = ''; rep.value = '';
+      if (!res.ok) {
+        btn.disabled = false; btn.textContent = 'Save password';
+        const f = res.fields || {};
+        if (f.currentPassword) setErr('pw-current', f.currentPassword);
+        if (f.newPassword) setErr('pw-new', f.newPassword);
+        if (!f.currentPassword && !f.newPassword) error.textContent = res.status === 429 ? (res.message || 'Too many attempts. Please wait and try again.') : 'The password could not be changed. Please try again.';
+        cur.focus();
+        return;
+      }
+      location.href = `${root}index.html`;
+    });
   }
 
   /* What the footer said on the previous page of this tab. Every page change is
@@ -487,8 +617,8 @@ const App = (() => {
               <img class="avatar" src="${root}assets/avatar/admin.webp"
                    alt="Admin profile photo" width="36" height="36">
               <span class="topbar__user-text">
-                <strong>Admin</strong>
-                <span>${Utils.esc(settings.businessName.split(' ')[0])} ASC</span>
+                <strong data-who-name>${Utils.esc(whoName())}</strong>
+                <span data-who-role>${Utils.esc(whoRole(settings))}</span>
               </span>
               <svg class="topbar__chevron" viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="${CHEVRON_ICON}"/></svg>
             </button>
@@ -802,7 +932,8 @@ const App = (() => {
       const shell = earlyShell && document.querySelector('.shell');
       if (shell) shell.inert = true;
       rememberSource();
-      renderSignIn(hydration.canSignIn !== false, hydration.accountSignIn === true);
+      if (hydration.passwordChange) renderPasswordChange();
+      else renderSignIn(hydration.canSignIn !== false, hydration.accountSignIn === true, hydration.sharedPassphrase !== false);
       return;
     }
     Storage.seedIfEmpty();
@@ -812,7 +943,7 @@ const App = (() => {
     warnIfBackendExpected(hydration);
     // Before the content is revealed, so a page this role may not open never shows.
     if (earlyShell) { applyAccess(); completeShell(); }
-    else { renderShell(); applyAccess(); rememberSource(); }
+    else { renderShell(); applyAccess(); showWho(); rememberSource(); }
   }
 
   /**
@@ -853,6 +984,40 @@ const App = (() => {
     document.addEventListener('taqwa:notifications-unread', (e) => setNotifyCount(e && e.detail && e.detail.unread));
   }
 
+  /* Who is signed in, for the header (0019): the person's own name and role,
+     or the shared workshop login. Drawn before the session is known as an
+     empty name, so it never shows someone it is not. */
+  function whoName() {
+    if (!Storage.isApi()) return 'Admin';
+    const a = Storage.account;
+    if (a) return a.name || a.username;
+    return Storage.fullAccess ? 'Shared workshop login' : 'Workshop';
+  }
+  function whoRole(settings) {
+    const a = Storage.isApi() ? Storage.account : null;
+    if (a) return a.role || 'No role';
+    if (Storage.isApi() && Storage.fullAccess) return 'Passphrase (full access)';
+    return `${(settings || Storage.getSettings()).businessName.split(' ')[0]} ASC`;
+  }
+  function showWho() {
+    const name = document.querySelector('[data-who-name]') || document.querySelector('.topbar__user-text strong');
+    const role = document.querySelector('[data-who-role]') || document.querySelector('.topbar__user-text span');
+    if (name) name.textContent = whoName();
+    if (role) role.textContent = whoRole();
+    const btn = document.getElementById('profileMenuBtn');
+    const img = btn && btn.querySelector('img.avatar');
+    const a = Storage.isApi() ? Storage.account : null;
+    // A personal account gets its own initial, not the owner's photo.
+    if (img && a) {
+      const initial = document.createElement('span');
+      initial.className = 'avatar avatar--initial';
+      initial.setAttribute('aria-hidden', 'true');
+      initial.textContent = String(a.name || a.username || '?').trim().charAt(0).toUpperCase();
+      img.replaceWith(initial);
+    }
+    if (btn) btn.setAttribute('aria-label', `${whoName()}, ${whoRole()} — account menu`);
+  }
+
   function completeShell() {
     const source = dataSource();
     const foot = document.getElementById('dataSource');
@@ -870,8 +1035,7 @@ const App = (() => {
       // the browser instead, where there is nothing to sign out of.
       signOut.remove();
     }
-    const tagline = document.querySelector('.topbar__user-text span');
-    if (tagline) tagline.textContent = `${Storage.getSettings().businessName.split(' ')[0]} ASC`;
+    showWho();
     revealContent();
     startNotifyBadge();
   }

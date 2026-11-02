@@ -54,7 +54,7 @@ const AT = '2026-10-08T00:00:00Z';
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
   '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0010_attendance.sql',
-  '0011_leave_requests.sql', '0012_activity_log.sql', '0018_roles_permissions.sql'];
+  '0011_leave_requests.sql', '0012_activity_log.sql', '0018_roles_permissions.sql', '0019_individual_login.sql'];
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -126,6 +126,12 @@ function fresh() {
     }), env);
     const text = await res.text();
     let json = null; try { json = JSON.parse(text); } catch { /* 204 */ }
+    // 0019: an account created by an administrator must choose its own password at
+    // first sign-in. This suite is about something else, so that step is taken
+    // for it here; tests/unit/api-login.test.mjs covers the step itself.
+    if (method === 'POST' && /^\/api\/accounts(\/USR-\d+\/password)?$/.test(path) && res.status < 300 && json?.data?.id) {
+      DB.raw.prepare('UPDATE user_accounts SET password_change_required = 0 WHERE id = ?').run(json.data.id);
+    }
     return { status: res.status, body: json, text, cookie: (res.headers.get('set-cookie') || '').split(';')[0] };
   };
   const one = (sql, ...a) => DB.raw.prepare(sql).get(...a);
@@ -327,8 +333,8 @@ console.log('\n-- G. compatibility --');
   const mec = await h.api('PUT', '/api/mechanics/MEC-0002', { name: 'Kamal Hossain', phone: '01800000002' });
   check('changes outside the logged Staff Management writes are not logged (customers, mechanics)', [cus.status, mec.status, count(h)], [201, 200, 0]);
   const routes = (await h.api('GET', '/api/health')).body?.data?.routes ?? [];
-  check('the registry is 149 routes: the 111 before, the two read routes, the five tools routes of 0013 and the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 the five Notifications routes of 0017 and the five Roles routes of 0018',
-    [routes.length, routes.filter((r) => r.includes('/api/activity-log'))], [149, ['GET /api/activity-log', 'GET /api/activity-log/:id']]);
+  check('the registry is 151 routes: the 111 before, the two read routes, the five tools routes of 0013 and the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 the five Notifications routes of 0017 the five Roles routes of 0018 and the two session routes of 0019',
+    [routes.length, routes.filter((r) => r.includes('/api/activity-log'))], [151, ['GET /api/activity-log', 'GET /api/activity-log/:id']]);
 }
 
 console.log(`\nActivity log unit: ${pass} passed, ${fail} failed`);

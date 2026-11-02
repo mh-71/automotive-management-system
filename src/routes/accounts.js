@@ -46,7 +46,7 @@ import {
 import { readJsonBody, nowIso, allocateId, constraintFailure } from '../lib/write.js';
 import { principalOf } from '../lib/auth.js';
 import {
-  ACCOUNT_STATUSES, ACCOUNT_ID, normaliseUsername, passwordProblem, hashPassword,
+  ACCOUNT_STATUSES, ACCOUNT_ID, normaliseUsername, passwordProblem, hashPassword, normaliseEmail, usernameLooksLikeOtherIdentifier,
 } from '../lib/accounts.js';
 import { can } from '../lib/permissions.js';
 import { findRole, loadRole, canHandleRole } from '../lib/roles.js';
@@ -55,9 +55,33 @@ const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 500;
 const PERSON_ID = /^(MEC|STF)-\d{4,}$/;
 
-const CREATE_KEYS = ['staffId', 'username', 'role', 'roleId', 'password'];
-const UPDATE_KEYS = ['status', 'role', 'roleId'];
+const CREATE_KEYS = ['staffId', 'username', 'role', 'roleId', 'password', 'email', 'mobile'];
+const UPDATE_KEYS = ['status', 'role', 'roleId', 'email', 'mobile'];
 const PASSWORD_KEYS = ['password'];
+const MOBILE = /^[0-9+\-() ]{6,20}$/;
+
+/** Optional e-mail and mobile from a body: { email, mobile } normalised (null = clear), or field errors. */
+function readContact(body, errors) {
+  const out = {};
+  if (body.email !== undefined) {
+    if (body.email === null || body.email === '') out.email = null;
+    else {
+      const e = normaliseEmail(body.email);
+      if (!e) errors.email = 'Enter a valid e-mail address, or leave it empty.';
+      else out.email = e;
+    }
+  }
+  if (body.mobile !== undefined) {
+    if (body.mobile === null || body.mobile === '') out.mobile = null;
+    else if (typeof body.mobile !== 'string' || !MOBILE.test(body.mobile.trim())) errors.mobile = 'Use 6-20 digits, spaces, + - ( ).';
+    else out.mobile = body.mobile.trim();
+  }
+  return out;
+}
+
+const duplicateEmail = (id) => conflict('Another account already uses that e-mail address.', {
+  field: 'email', fields: { email: 'Another account already uses that e-mail address.' }, ...(id ? { conflictsWith: id } : {}),
+});
 
 /* ---------- authorization ---------- */
 
@@ -87,6 +111,7 @@ async function chosenRole(env, who, body) {
 
 const SELECT = `
   SELECT a.id, a.mechanic_id, a.staff_id, a.username, a.role, a.role_id, a.status, a.last_login_at, a.locked_until,
+         a.email, a.mobile, a.password_change_required,
          a.password_changed_at, a.created_at, a.updated_at, r.name AS role_name, r.full_access AS role_full_access,
          COALESCE(m.name, s.name) AS person_name,
          COALESCE(m.status, s.status) AS person_status,
@@ -107,6 +132,9 @@ function toRecord(row, who, now = new Date().toISOString()) {
     staffStatus: row.person_status ?? '',
     designation: row.designation ?? '',
     username: row.username,
+    email: row.email ?? '',
+    mobile: row.mobile ?? '',
+    passwordChangeRequired: Number(row.password_change_required) === 1,
     role: row.role_name ?? '',
     roleId: row.role_id ?? null,
     status: row.status,
@@ -168,6 +196,7 @@ export async function listAccounts(request, env, url) {
             OR instr(lower(COALESCE(m.name, s.name, '')), ?3) > 0
             OR instr(lower(COALESCE(a.mechanic_id, a.staff_id)), ?3) > 0
             OR instr(a.username, ?3) > 0
+            OR instr(COALESCE(a.email, ''), ?3) > 0
             OR instr(lower(a.id), ?3) > 0)`;
   try {
     const { results } = await env.DB.prepare(
@@ -245,6 +274,7 @@ function writeConflict(err) {
   if (/UNIQUE constraint failed/i.test(message)) {
     if (/username/i.test(message)) return duplicateUsername(null);
     if (/mechanic_id|staff_id/i.test(message)) return duplicatePerson(null);
+    if (/email/i.test(message)) return duplicateEmail(null);
   }
   return constraintFailure(err);
 }
@@ -265,6 +295,8 @@ export async function createAccount(request, env) {
   if (!PERSON_ID.test(staffId)) errors.staffId = 'Choose a staff member.';
   const username = normaliseUsername(body.username);
   if (!username) errors.username = 'Use 3-32 lower-case letters, digits, dots, dashes or underscores.';
+  else if (usernameLooksLikeOtherIdentifier(username)) errors.username = 'A username cannot look like a Staff ID (e.g. STF-0001).';
+  const contact = readContact(body, errors);
   if (body.role === undefined && body.roleId === undefined) errors.role = 'Choose a role.';
   const weak = passwordProblem(body.password, username || '');
   if (weak) errors.password = weak;
@@ -282,6 +314,10 @@ export async function createAccount(request, env) {
     if (person.accountId) return duplicatePerson(person.accountId);
     const taken = await env.DB.prepare('SELECT id FROM user_accounts WHERE username = ?1').bind(username).first();
     if (taken) return duplicateUsername(taken.id);
+    if (contact.email) {
+      const used = await env.DB.prepare('SELECT id FROM user_accounts WHERE email = ?1').bind(contact.email).first();
+      if (used) return duplicateEmail(used.id);
+    }
 
     const hash = await hashPassword(body.password);
     const allocated = await allocateId(env, 'accounts');
@@ -291,11 +327,14 @@ export async function createAccount(request, env) {
     }
     const now = nowIso();
     await env.DB.prepare(
-      `INSERT INTO user_accounts (id, mechanic_id, staff_id, username, role, role_id, status, password_hash, password_changed_at, created_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?8, 'Active', ?6, ?7, ?7
+      `INSERT INTO user_accounts (id, mechanic_id, staff_id, username, role, role_id, status, password_hash, password_changed_at, created_at,
+                                 email, mobile, password_change_required)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?8, 'Active', ?6, ?7, ?7, ?9, ?10, ?11
         WHERE EXISTS (SELECT 1 FROM roles WHERE id = ?8 AND status = 'Active')`
     ).bind(allocated.id, person.isMechanic ? staffId : null, person.isMechanic ? null : staffId, username,
-      choice.role.name, hash, now, choice.role.id).run();
+      choice.role.name, hash, now, choice.role.id, contact.email ?? null, contact.mobile ?? null,
+      // The person did not choose this password: they must replace it at their first sign-in.
+      1).run();
     const created = await findAccount(env, allocated.id);
     if (!created) return conflict('That role was switched off meanwhile. Choose another role.', { field: 'role', fields: { role: 'That role is switched off.' } });
     return ok(toRecord(created, who), {}, 201);
@@ -322,7 +361,8 @@ export async function updateAccount(request, env, rawId) {
   const errors = unknownKeys(body, UPDATE_KEYS);
   if (body.status !== undefined && !ACCOUNT_STATUSES.includes(body.status)) errors.status = 'Choose Active or Inactive.';
   const changingRole = body.role !== undefined || body.roleId !== undefined;
-  if (!Object.keys(errors).length && body.status === undefined && !changingRole) {
+  const contact = readContact(body, errors);
+  if (!Object.keys(errors).length && body.status === undefined && !changingRole && !Object.keys(contact).length) {
     errors.status = 'Nothing to change.';
   }
   if (Object.keys(errors).length) return unprocessable('Some account fields are not valid.', errors);
@@ -354,6 +394,10 @@ export async function updateAccount(request, env, rawId) {
       });
     }
 
+    if (contact.email) {
+      const used = await env.DB.prepare('SELECT id FROM user_accounts WHERE email = ?1 AND id <> ?2').bind(contact.email, id).first();
+      if (used) return duplicateEmail(used.id);
+    }
     const status = body.status ?? row.status;
     const deactivating = row.status === 'Active' && status === 'Inactive';
     const wasSuper = Number(row.role_full_access) === 1;
@@ -365,13 +409,16 @@ export async function updateAccount(request, env, rawId) {
     const res = await env.DB.prepare(
       `UPDATE user_accounts
           SET status = ?2, role_id = ?3, role = ?4, updated_at = ?5,
-              session_version = session_version + ?6
+              session_version = session_version + ?6,
+              email = CASE WHEN ?9 = 1 THEN ?10 ELSE email END,
+              mobile = CASE WHEN ?11 = 1 THEN ?12 ELSE mobile END
         WHERE id = ?1
           AND (?3 IS NULL OR EXISTS (SELECT 1 FROM roles WHERE id = ?3 AND (status = 'Active' OR ?3 IS ?8)))
           AND (?7 = 0 OR (SELECT count(*) FROM user_accounts u JOIN roles r ON r.id = u.role_id
                            WHERE u.status = 'Active' AND r.full_access = 1 AND u.id <> ?1) > 0)`
     ).bind(id, status, next ? next.id : null, next ? next.name : row.role, now,
-      deactivating || roleChanged ? 1 : 0, guardLastSuper ? 1 : 0, row.role_id).run();
+      deactivating || roleChanged ? 1 : 0, guardLastSuper ? 1 : 0, row.role_id,
+      'email' in contact ? 1 : 0, contact.email ?? null, 'mobile' in contact ? 1 : 0, contact.mobile ?? null).run();
     if (!res.meta || res.meta.changes !== 1) {
       if (guardLastSuper) {
         return conflict('This is the last active Super Admin account. Make another account Super Admin first.', {
@@ -382,6 +429,7 @@ export async function updateAccount(request, env, rawId) {
     }
     return ok(toRecord(await findAccount(env, id), who));
   } catch (err) {
+    if (/UNIQUE constraint failed/i.test(String(err && err.message)) && /email/i.test(String(err && err.message))) return duplicateEmail(null);
     const mapped = constraintFailure(err);
     if (mapped) return mapped;
     console.error('PUT /api/accounts/:id failed:', err && err.message);
@@ -416,9 +464,14 @@ export async function setAccountPassword(request, env, rawId) {
     await env.DB.prepare(
       `UPDATE user_accounts
           SET password_hash = ?2, password_changed_at = ?3, updated_at = ?3,
-              session_version = session_version + 1, failed_logins = 0, locked_until = NULL
+              session_version = session_version + 1, failed_logins = 0, locked_until = NULL,
+              password_change_required = ?4
         WHERE id = ?1`
-    ).bind(id, hash, now).run();
+    ).bind(id, hash, now,
+      // Someone else chose this password: unless the person is resetting their
+      // own, they must replace it at their next sign-in (0019), so nobody else
+      // ever knows the password they end up with.
+      who.kind === 'account' && who.id === id ? 0 : 1).run();
     return ok(toRecord(await findAccount(env, id), who));
   } catch (err) {
     console.error('POST /api/accounts/:id/password failed:', err && err.message);

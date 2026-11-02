@@ -62,7 +62,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AT = '2026-10-08T00:00:00Z';
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
-  '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0018_roles_permissions.sql'];
+  '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0018_roles_permissions.sql', '0019_individual_login.sql'];
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -131,6 +131,12 @@ function fresh() {
     }), env);
     const text = await res.text();
     let json = null; try { json = JSON.parse(text); } catch { /* 204 */ }
+    // 0019: an account created by an administrator must choose its own password at
+    // first sign-in. This suite is about something else, so that step is taken
+    // for it here; tests/unit/api-login.test.mjs covers the step itself.
+    if (method === 'POST' && /^\/api\/accounts(\/USR-\d+\/password)?$/.test(path) && res.status < 300 && json?.data?.id) {
+      DB.raw.prepare('UPDATE user_accounts SET password_change_required = 0 WHERE id = ?').run(json.data.id);
+    }
     return { status: res.status, body: json, text, cookie: (res.headers.get('set-cookie') || '').split(';')[0] };
   };
   const one = (sql, ...a) => DB.raw.prepare(sql).get(...a);
@@ -150,13 +156,13 @@ console.log('\n-- A. schema --');
   const h = fresh();
   check('user_accounts has the designed columns', h.DB.raw.prepare('PRAGMA table_info(user_accounts)').all().map((c) => c.name),
     ['id', 'mechanic_id', 'staff_id', 'username', 'role', 'status', 'password_hash', 'session_version', 'failed_logins',
-      'locked_until', 'last_login_at', 'password_changed_at', 'created_at', 'updated_at', 'role_id']);
+      'locked_until', 'last_login_at', 'password_changed_at', 'created_at', 'updated_at', 'role_id', 'email', 'mobile', 'password_change_required']);
   check('foreign keys: mechanics and staff (ON DELETE CASCADE), and the role (0018, RESTRICT)',
     h.DB.raw.prepare('PRAGMA foreign_key_list(user_accounts)').all().map((f) => `${f.from}->${f.table}.${f.to} ${f.on_delete}`).sort(),
     ['mechanic_id->mechanics.id CASCADE', 'role_id->roles.id RESTRICT', 'staff_id->staff.id CASCADE']);
   check('indexes: username (any case), one per mechanic, one per staff member, status, role (0018)',
     h.DB.raw.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='user_accounts' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r) => r.name),
-    ['ix_accounts_status', 'ix_user_accounts_role', 'ux_accounts_mechanic', 'ux_accounts_staff', 'ux_accounts_username']);
+    ['ix_accounts_status', 'ix_user_accounts_role', 'ux_accounts_email', 'ux_accounts_mechanic', 'ux_accounts_staff', 'ux_accounts_username']);
   check('the USR counter starts at 0', h.one("SELECT prefix, last_value FROM id_counters WHERE collection='accounts'"), { prefix: 'USR', last_value: 0 });
   const ins = (id, m, s, u, hash = 'pbkdf2_sha256$1$a$b') => {
     try { h.DB.raw.prepare('INSERT INTO user_accounts (id, mechanic_id, staff_id, username, role, password_hash, password_changed_at, created_at) VALUES (?,?,?,?,?,?,?,?)').run(id, m, s, u, 'Administrator', hash, AT, AT); return 'ok'; }
@@ -269,7 +275,7 @@ console.log('\n-- D. list and detail --');
   const all = await h.api('GET', '/api/accounts');
   check('the list: every account, sorted by name, with its staff member', all.body.data.map((a) => [a.id, a.staffName, a.username, a.status]),
     [['USR-0001', 'Jamal Uddin', 'jamal', 'Active'], ['USR-0003', 'Kamal', 'kamal', 'Inactive'], ['USR-0002', 'Nadia Akter', 'nadia', 'Active']]);
-  check('   ...in one shape, with nothing secret', Object.keys(all.body.data[0]).sort(), ['createdAt', 'designation', 'id', 'isMechanic', 'lastLoginAt', 'locked', 'passwordChangedAt', 'role', 'roleId', 'self', 'staffId', 'staffName', 'staffStatus', 'status', 'username']);
+  check('   ...in one shape, with nothing secret', Object.keys(all.body.data[0]).sort(), ['createdAt', 'designation', 'email', 'id', 'isMechanic', 'lastLoginAt', 'locked', 'mobile', 'passwordChangeRequired', 'passwordChangedAt', 'role', 'roleId', 'self', 'staffId', 'staffName', 'staffStatus', 'status', 'username']);
   ok_('   ...no hash, session version or counter anywhere in the list', !SECRETS.test(all.text), all.text.slice(0, 200));
   const q = async (s) => (await h.api('GET', `/api/accounts?${s}`)).body.data.map((a) => a.id);
   check('search by name, staff id and username', [await q('q=nadia'), await q('q=mec-0002'), await q('q=JAM')], [['USR-0002'], ['USR-0003'], ['USR-0001']]);
@@ -290,7 +296,7 @@ console.log('\n-- E. sign-in --');
   check('username (any case) + password -> 204 with an account session cookie', [s.status, s.cookie.startsWith('taqwa_session=a1.')], [204, true]);
   check('   ...which the gate accepts for business data', (await h.api('GET', '/api/customers', undefined, s.cookie)).status, 200);
   const who = await h.api('GET', '/api/session', undefined, s.cookie);
-  check('   ...and GET /api/session says whose session it is (id, username, role only)', who.body.data.account, { id: 'USR-0001', username: 'jamal', role: 'Super Admin', roleId: 'ROL-0001' });
+  check('   ...and GET /api/session says whose session it is (id, username, role only)', who.body.data.account, { id: 'USR-0001', username: 'jamal', name: 'Jamal Uddin', staffId: 'MEC-0001', role: 'Super Admin', roleId: 'ROL-0001', passwordChangeRequired: false });
   check('   ...and what it may do (0018, for display): full access', [who.body.data.fullAccess, who.body.data.permissions.includes('roles.edit')], [true, true]);
   ok_('   ...the last sign-in is recorded', !!h.one("SELECT last_login_at FROM user_accounts WHERE id='USR-0001'").last_login_at);
   const ownerWho = await h.api('GET', '/api/session', undefined, await h.passphraseCookie());

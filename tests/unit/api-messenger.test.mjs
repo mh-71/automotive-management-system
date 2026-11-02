@@ -56,7 +56,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
   '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0010_attendance.sql',
-  '0011_leave_requests.sql', '0012_activity_log.sql', '0013_tools.sql', '0014_messenger.sql', '0018_roles_permissions.sql'];
+  '0011_leave_requests.sql', '0012_activity_log.sql', '0013_tools.sql', '0014_messenger.sql', '0018_roles_permissions.sql', '0019_individual_login.sql'];
 const TOKEN = 'unit-test-token';
 const APP_SECRET = 'test-app-secret-not-real';
 const VERIFY = 'test-verify-token-not-real';

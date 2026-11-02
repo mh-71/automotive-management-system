@@ -26,6 +26,38 @@ export const MAX_FAILED_LOGINS = 5;
 export const LOCK_MINUTES = 15;
 
 /** The sign-in name as stored: trimmed and lower case. Null if it is not a valid one. */
+/** A Staff ID: the person an account belongs to, MEC-0001 (mechanic) or STF-0001 (other staff). */
+export const STAFF_ID = /^(MEC|STF)-\d{4,}$/;
+/** A login e-mail: lower case, one @, a dot after it, no spaces, at most 160. */
+export const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** An e-mail as stored and compared: trimmed and lower case, or null if it is not one. */
+export function normaliseEmail(value) {
+  if (typeof value !== 'string') return null;
+  const e = value.trim().toLowerCase();
+  return e.length >= 6 && e.length <= 160 && EMAIL.test(e) ? e : null;
+}
+
+/**
+ * What a sign-in identifier is. One field takes all three:
+ *   contains '@'           -> an e-mail address
+ *   MEC-0001 / STF-0001    -> a Staff ID (any case)
+ *   anything else          -> a username (any case)
+ * Returns { kind, value } with the value normalised, or null for nothing usable.
+ */
+export function classifyIdentifier(raw) {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim();
+  if (!v || v.length > 160) return null;
+  if (v.includes('@')) { const e = normaliseEmail(v); return e ? { kind: 'email', value: e } : null; }
+  if (STAFF_ID.test(v.toUpperCase())) return { kind: 'staffId', value: v.toUpperCase() };
+  const u = normaliseUsername(v);
+  return u ? { kind: 'username', value: u } : null;
+}
+
+/** A username may not look like a Staff ID or an e-mail, so no sign-in identifier can mean two accounts. */
+export const usernameLooksLikeOtherIdentifier = (u) => STAFF_ID.test(String(u || '').toUpperCase());
+
 export function normaliseUsername(value) {
   if (typeof value !== 'string') return null;
   const u = value.trim().toLowerCase();
@@ -47,7 +79,7 @@ export { hashPassword };
 // The person behind an account: a mechanic or another employee, and whether they are still active.
 const PERSON_SQL = `
   SELECT a.id, a.username, a.role, a.status, a.session_version, a.password_hash, a.failed_logins, a.locked_until,
-         a.role_id, r.name AS role_name, r.status AS role_status, r.full_access AS role_full_access,
+         a.role_id, a.email, a.mechanic_id, a.staff_id, a.password_change_required, r.name AS role_name, r.status AS role_status, r.full_access AS role_full_access,
          COALESCE(m.name, s.name) AS person_name,
          COALESCE(m.status, s.status) AS person_status
     FROM user_accounts a
@@ -82,7 +114,9 @@ export async function loadSessionAccount(env, accountId, sessionVersion) {
     const row = await env.DB.prepare(`${PERSON_SQL} WHERE a.id = ?1`).bind(accountId).first();
     if (!row || row.status !== 'Active' || row.person_status !== 'Active') return null;
     if (Number(row.session_version) !== Number(sessionVersion)) return null;
-    return { kind: 'account', id: row.id, username: row.username, name: row.person_name, ...(await roleGrant(env, row)) };
+    return { kind: 'account', id: row.id, username: row.username, name: row.person_name,
+      staffId: row.mechanic_id || row.staff_id || null,
+      passwordChangeRequired: Number(row.password_change_required) === 1, ...(await roleGrant(env, row)) };
   } catch (err) {
     console.error('Account session check failed:', err && err.message);
     return null;
@@ -90,24 +124,41 @@ export async function loadSessionAccount(env, accountId, sessionVersion) {
 }
 
 /**
- * Check a username and password. Resolves to the account to sign in, or null.
- *
- * Every "no" costs the same work (an unknown name is checked against a decoy
- * hash), and every "no" looks the same to the caller: the route answers them
- * all with one 401. Wrong passwords are counted; the fifth in a row pauses the
- * account's sign-in for LOCK_MINUTES. A correct password resets the count and
- * records the sign-in.
+ * The one account a sign-in identifier names, or null. A Staff ID is also a
+ * valid username shape (e.g. "stf-0002"); new usernames may not look like one,
+ * and if an old one does and the two point at DIFFERENT accounts, the answer is
+ * null -- an identifier must never be able to mean two people.
  */
-export async function checkAccountSignIn(env, rawUsername, password, now = new Date()) {
-  const username = normaliseUsername(rawUsername);
+async function findSignInAccount(env, id) {
+  if (id.kind === 'email') return env.DB.prepare(`${PERSON_SQL} WHERE a.email = ?1`).bind(id.value).first();
+  if (id.kind === 'username') return env.DB.prepare(`${PERSON_SQL} WHERE a.username = ?1`).bind(id.value).first();
+  const { results } = await env.DB.prepare(
+    `${PERSON_SQL} WHERE a.mechanic_id = ?1 OR a.staff_id = ?1 OR a.username = ?2`
+  ).bind(id.value, id.value.toLowerCase()).all();
+  const rows = results || [];
+  return rows.length === 1 ? rows[0] : null;
+}
+
+/**
+ * Check an identifier (username, e-mail or Staff ID) and password. Resolves to
+ * the account to sign in, or null.
+ *
+ * Every "no" costs the same work (an unknown identifier is checked against a
+ * decoy hash), and every "no" looks the same to the caller: the route answers
+ * them all with one 401. Wrong passwords are counted; the fifth in a row pauses
+ * the account's sign-in for LOCK_MINUTES. A correct password resets the count
+ * and records the sign-in.
+ */
+export async function checkAccountSignIn(env, rawIdentifier, password, now = new Date()) {
+  const id = classifyIdentifier(rawIdentifier);
   const supplied = typeof password === 'string' ? password.slice(0, PASSWORD_MAX + 1) : '';
-  if (!env || !env.DB || !username || supplied === '') {
+  if (!env || !env.DB || !id || supplied === '') {
     await verifyPassword('decoy', DECOY_HASH);
     return null;
   }
   let row;
   try {
-    row = await env.DB.prepare(`${PERSON_SQL} WHERE a.username = ?1`).bind(username).first();
+    row = await findSignInAccount(env, id);
   } catch (err) {
     console.error('Account sign-in lookup failed:', err && err.message);
     return null;
@@ -133,5 +184,23 @@ export async function checkAccountSignIn(env, rawUsername, password, now = new D
   await env.DB.prepare(
     'UPDATE user_accounts SET failed_logins = 0, locked_until = NULL, last_login_at = ?2 WHERE id = ?1'
   ).bind(row.id, now.toISOString()).run();
-  return { id: row.id, sessionVersion: Number(row.session_version) };
+  return { id: row.id, sessionVersion: Number(row.session_version), passwordChangeRequired: Number(row.password_change_required) === 1 };
+}
+
+/**
+ * May the shared workshop passphrase still sign in (0019 auth_settings)?
+ * Before the migration the table does not exist: that is today's behaviour,
+ * so the answer is yes.
+ */
+export async function passphraseEnabled(env) {
+  if (!env || !env.DB || typeof env.DB.prepare !== 'function') return true;
+  try {
+    const row = await env.DB.prepare('SELECT passphrase_enabled FROM auth_settings WHERE id = 1').first();
+    // Only an explicit 0 switches it off (the column holds 0 or 1).
+    return !row || Number(row.passphrase_enabled) !== 0;
+  } catch (err) {
+    if (/no such table/i.test(String(err && err.message))) return true;
+    console.error('Passphrase setting could not be read:', err && err.message);
+    return false;
+  }
 }

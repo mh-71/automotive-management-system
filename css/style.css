@@ -555,3 +555,50 @@ a.nav__sub:hover { background: rgba(255, 255, 255, .06); color: #fff; text-decor
   max-width: 1440px;
   width: 100%;
 }
+
+/* ---------- The sign-in screen (0019) ----------
+   Logo on the dark backdrop, then the card. Works in light and dark: the
+   card and fields use the theme tokens. */
+.login { width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.login__logo { width: 168px; height: auto; }
+.login__card { max-width: 400px; padding: 28px 26px 22px; gap: 16px; box-shadow: 0 18px 48px rgba(0, 0, 0, .35); }
+.login__head { text-align: center; }
+.login__title { margin: 0; font-size: 1.35rem; font-weight: 700; color: var(--text); }
+.login__subtitle { margin: 6px 0 0; font-size: .9rem; color: var(--text-2); line-height: 1.45; }
+.login__card .field { margin: 0; }
+.login__card [data-mode] { display: grid; gap: 14px; }
+.login__card [data-mode][hidden] { display: none; }
+.login__card .input { width: 100%; height: 44px; }
+.login__pw { position: relative; }
+.login__pw .input { padding-right: 46px; }
+.login__eye {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 8px;
+  background: none; color: var(--text-3); cursor: pointer;
+}
+.login__eye:hover { color: var(--text); background: var(--paper); }
+.login__eye:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+.login__error { margin: 0; min-height: 0; font-size: .85rem; color: var(--bad); }
+.login__error:empty { display: none; }
+.login__submit { width: 100%; height: 46px; justify-content: center; font-size: 1rem; }
+.login__submit:disabled { opacity: .7; cursor: progress; }
+.login__links { display: flex; justify-content: center; }
+.login__link, .login__legacy {
+  border: 0; background: none; padding: 4px 6px; font: inherit; cursor: pointer; border-radius: 6px;
+}
+.login__link { font-size: .88rem; font-weight: 600; color: var(--amber-text); }
+.login__link:hover { text-decoration: underline; }
+.login__legacy { align-self: center; font-size: .78rem; color: var(--text-3); text-decoration: underline; }
+.login__link:focus-visible, .login__legacy:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.login__forgot { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--paper); font-size: .84rem; color: var(--text-2); line-height: 1.5; }
+.login__forgot[hidden] { display: none; }
+.login__forgot strong { display: block; color: var(--text); margin-bottom: 4px; }
+.login__forgot p { margin: 0 0 6px; }
+.login__fine { font-size: .76rem; color: var(--text-3); margin: 0 !important; }
+@media (max-width: 480px) {
+  .app-gate { padding: 16px; align-items: flex-start; overflow-y: auto; }
+  .login { margin-top: 24px; }
+  .login__card { padding: 22px 18px 18px; }
+}
+/* The header's avatar for a personal account: its initial (0019). */
+.avatar--initial { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--amber); color: var(--ink-900); font-weight: 700; font-size: .95rem; }

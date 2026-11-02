@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 149 routes', routes.length === 149, routes);
+  t('advertises 151 routes', routes.length === 151, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('61 GET, 54 POST, 22 PUT, 12 DELETE',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 61, POST: 54, PUT: 22, DELETE: 12 }), byMethod);
+    t('61 GET, 55 POST, 23 PUT, 12 DELETE',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 61, POST: 55, PUT: 23, DELETE: 12 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));
@@ -4673,7 +4673,10 @@ sec('21. Authentication: every mutation is gated, against the real Worker');
     t('   ...and 401 with a wrong token', noScheme.length === 0, noScheme);
 
     const refused = [];
+    // 0019: these two belong to a person's own session; the machine token is refused there by design.
+    const PERSONAL = new Set(['POST /api/session/password', 'PUT /api/session/passphrase']);
     for (const route of mutations) {
+      if (PERSONAL.has(route)) continue;
       const [method, path] = route.split(' ');
       const r = await sendAnon(method, concrete(path), { probe: true },
         { authorization: `Bearer ${TOKEN}` });
@@ -4705,7 +4708,7 @@ sec('21. Authentication: every mutation is gated, against the real Worker');
       sess.status === 200, sess.status);
     // `accounts` (0009): whether a staff member may sign in with their own account here.
     t('   ...and reports only whether this caller is signed in, and how signing in works',
-      JSON.stringify(Object.keys(sess.body.data).sort()) === '["accounts","authenticated","passphrase"]',
+      JSON.stringify(Object.keys(sess.body.data).sort()) === '["accounts","authenticated","passphrase","sharedPassphrase"]',
       sess.body.data);
   }
 
@@ -5582,14 +5585,23 @@ sec('29. User accounts (0009): sign-in for a staff member, against the real Work
   t('   ...a role that does not exist -> 422', role.status === 422 && 'role' in (role.body?.error?.fields ?? {}), role.body);
 
   // 29b. sign in with it
-  const s1 = await login({ username: 'IT.MECHANIC', password: PW });
-  t('29b username + password -> 204 and an account session cookie', s1.status === 204 && s1.cookie.startsWith('taqwa_session=a1.'), s1);
-  t('   ...the cookie does not carry the password', !s1.cookie.includes(PW));
+  const first = await login({ username: 'IT.MECHANIC', password: PW });
+  t('29b username + password -> 204 and an account session cookie', first.status === 204 && first.cookie.startsWith('taqwa_session=a1.'), first);
+  t('   ...the cookie does not carry the password', !first.cookie.includes(PW));
+  // 0019: the password was set by an administrator, so its owner must choose their own first.
+  const blocked = await as('GET', '/api/customers', first.cookie);
+  t('   ...until its owner chooses their own password, business data is 403 password_change_required',
+    blocked.status === 403 && blocked.body?.error?.code === 'password_change_required', blocked);
+  const OWN_PW = 'Integration-Own-1';
+  const chosen = await fetch(BASE + '/api/session/password', { method: 'POST', headers: { cookie: first.cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ currentPassword: PW, newPassword: OWN_PW }) });
+  const s1 = { status: chosen.status, cookie: (chosen.headers.get('set-cookie') || '').split(';')[0] };
+  t('   ...choosing it -> 204 and a fresh session cookie', s1.status === 204 && s1.cookie.startsWith('taqwa_session=a1.') && s1.cookie !== first.cookie, s1.status);
   const read = await as('GET', '/api/customers', s1.cookie);
   t('   ...the gate accepts it for business data', read.status === 200, read.status);
   const me = await as('GET', '/api/session', s1.cookie);
   t('   ...GET /api/session names the account (id, username, role only)',
-    me.body?.data?.account?.id === A && me.body?.data?.account?.username === 'it.mechanic' && Object.keys(me.body?.data?.account ?? {}).sort().join() === 'id,role,roleId,username', me.body);
+    me.body?.data?.account?.id === A && me.body?.data?.account?.username === 'it.mechanic' && Object.keys(me.body?.data?.account ?? {}).sort().join() === 'id,name,passwordChangeRequired,role,roleId,staffId,username', me.body);
   const list = await as('GET', '/api/accounts', s1.cookie);
   t('   ...a Super Admin account may list accounts; its own row is marked, nothing secret',
     list.status === 200 && list.body?.data?.some((a) => a.id === A && a.self === true) && !SECRET_RE.test(JSON.stringify(list.body)), list.body);
@@ -5690,9 +5702,18 @@ sec('32. Roles & Permissions (0018): enforced by the real Worker, against real D
     let parsed = null; try { parsed = await res.json(); } catch { parsed = null; }
     return { status: res.status, body: parsed };
   };
-  const signIn = async (username) => {
-    const res = await fetch(BASE + '/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password: PW }) });
-    return (res.headers.get('set-cookie') || '').split(';')[0];
+  // Signs in by username (0019: `identifier`) and, the first time, chooses the account's own password.
+  let current = PW;
+  const signIn = async (identifier) => {
+    const res = await fetch(BASE + '/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier, password: current }) });
+    const cookie = (res.headers.get('set-cookie') || '').split(';')[0];
+    const me = await as('GET', '/api/session', cookie);
+    if (!me.body?.data?.account?.passwordChangeRequired) return cookie;
+    const next = 'Integration-Own-3';
+    const changed = await fetch(BASE + '/api/session/password', { method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ currentPassword: current, newPassword: next }) });
+    current = next;
+    return (changed.headers.get('set-cookie') || '').split(';')[0];
   };
   const roles = await get('/api/roles');
   t('32a the eight built-in roles exist, Super Admin first and protected', roles.status === 200 && roles.body?.data?.length >= 8
@@ -5728,6 +5749,45 @@ sec('32. Roles & Permissions (0018): enforced by the real Worker, against real D
     (await as('GET', '/api/roles', desk)).status, (await as('PUT', `/api/accounts/${made.body?.data?.id}`, desk, { roleId: 'ROL-0001' })).status,
     (await as('POST', '/api/roles', desk, { name: 'Mine', permissions: ['customers.view'] })).status].every((x) => x === 403));
   // cleanup.sql removes the account, the customer and the test role, and restores the counters.
+}
+
+sec('33. Individual login (0019): username, e-mail or Staff ID, in the real Worker');
+{
+  const TEMP = 'Integration-Temp-4';
+  const OWN = 'Integration-Own-4';
+  const post = async (path, body, cookie) => {
+    const res = await fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+    let json = null; try { json = await res.json(); } catch { json = null; }
+    return { status: res.status, body: json, cookie: (res.headers.get('set-cookie') || '').split(';')[0], setCookie: res.headers.get('set-cookie') || '' };
+  };
+  const read = async (path, cookie) => (await fetch(BASE + path, { headers: { cookie } })).status;
+  const person = await send('POST', '/api/staff', { name: 'Integration Login Person', phone: '01755000133', designation: 'Clerk', department: 'Office', joiningDate: '2025-01-15' });
+  const made = await send('POST', '/api/accounts', { staffId: person.body?.data?.id, username: 'it.login', role: 'Super Admin', password: TEMP, email: 'IT.Login@Example.com' });
+  t('33a an account with an e-mail -> 201, stored in lower case; it must choose its own password', person.status === 201 && made.status === 201
+    && made.body?.data?.email === 'it.login@example.com' && made.body?.data?.passwordChangeRequired === true, [person.status, made.body]);
+  const holder = made;
+  const first = await post('/api/session', { identifier: 'it.login', password: TEMP });
+  const own = await post('/api/session/password', { currentPassword: TEMP, newPassword: OWN }, first.cookie);
+  t('33b first sign-in, then its own password -> 204 and a fresh cookie', first.status === 204 && own.status === 204 && own.cookie !== first.cookie, [first.status, own.status]);
+  const staffId = holder.body?.data?.staffId;
+  const viaMail = await post('/api/session', { identifier: '  IT.LOGIN@example.COM ', password: OWN });
+  const viaId = await post('/api/session', { identifier: String(staffId).toLowerCase(), password: OWN });
+  t('33c signs in by e-mail and by Staff ID too (any case)', viaMail.status === 204 && viaId.status === 204, [viaMail.status, viaId.status, staffId]);
+  t('   ...cookie HttpOnly, Secure, SameSite=Strict', /HttpOnly/.test(viaMail.setCookie) && /Secure/.test(viaMail.setCookie) && /SameSite=Strict/.test(viaMail.setCookie));
+  const bad = await post('/api/session', { identifier: 'it.login', password: 'Wrong-Integration-9' });
+  const ghost = await post('/api/session', { identifier: 'ghost@example.com', password: 'Wrong-Integration-9' });
+  t('   ...a wrong password and an unknown e-mail get the same 401', bad.status === 401 && ghost.status === 401 && JSON.stringify(bad.body) === JSON.stringify(ghost.body), [bad.body, ghost.body]);
+  t('33d the session works; signing out ends this AND the other session of the account', await read('/api/customers', viaMail.cookie) === 200
+    && (await fetch(BASE + '/api/session', { method: 'DELETE', headers: { cookie: viaMail.cookie } })).status === 204
+    && await read('/api/customers', viaMail.cookie) === 401 && await read('/api/customers', viaId.cookie) === 401);
+  const boss = (await post('/api/session', { identifier: 'it.login', password: OWN })).cookie;
+  const pass = await post('/api/session', { passphrase: process.env.TAQWA_PASSPHRASE || '' });
+  const stop = await fetch(BASE + '/api/session/passphrase', { method: 'PUT', headers: { cookie: boss, 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }) });
+  t('33e a Super Admin\'s own account switches the shared passphrase off; it then signs nobody in and its session stops', stop.status === 200
+    && (await post('/api/session', { passphrase: process.env.TAQWA_PASSPHRASE || '' })).status === 401 && await read('/api/customers', pass.cookie) === 401, stop.status);
+  const back = await fetch(BASE + '/api/session/passphrase', { method: 'PUT', headers: { cookie: boss, 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
+  t('   ...and on again', back.status === 200 && (await post('/api/session', { passphrase: process.env.TAQWA_PASSPHRASE || '' })).status === 204);
+  // cleanup.sql removes the account, the throttle rows, and leaves the passphrase on.
 }
 
 console.log(`\nAPI integration: ${pass} passed, ${fail} failed`);

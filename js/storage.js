@@ -104,6 +104,7 @@ const Storage = (() => {
   // for a workshop-passphrase session. Set by hydrate(); display only -- the
   // Worker decides what any caller may do.
   let signedInAccount = null;
+  let sharedPassphrase = true;
 
   /* What the signed-in caller may do (0018), from GET /api/session. Used to
      show only what will work -- every request is still checked by the
@@ -684,10 +685,17 @@ const Storage = (() => {
       if (!who.ok) return { mode: 'local', reason: who.code || 'network_error' };
       if (!who.authenticated) {
         mode = 'locked';
-        return { mode: 'locked', canSignIn: who.passphrase, accountSignIn: who.accounts };
+        return { mode: 'locked', canSignIn: who.passphrase, accountSignIn: who.accounts, sharedPassphrase: who.sharedPassphrase !== false };
       }
       // Who is signed in: a staff member's account, or null for the workshop passphrase.
       signedInAccount = who.account || null;
+      sharedPassphrase = who.sharedPassphrase !== false;
+      // A password someone else set must be replaced first (0019): nothing else
+      // is readable until then, so do not try -- the app asks for a new one.
+      if (signedInAccount && signedInAccount.passwordChangeRequired) {
+        mode = 'locked';
+        return { mode: 'locked', passwordChange: true, canSignIn: who.passphrase, accountSignIn: who.accounts };
+      }
       grant = Array.isArray(who.permissions) ? { fullAccess: who.fullAccess === true, permissions: new Set(who.permissions) } : null;
       denied.clear();
 
@@ -744,6 +752,11 @@ const Storage = (() => {
     return finishSignIn(await Api.login(passphrase));
   }
 
+  /** Sign in with a username, e-mail or Staff ID and a password (0019); otherwise exactly signIn(). */
+  async function signInWithIdentifier(identifier, password) {
+    return finishSignIn(await Api.loginIdentifier(identifier, password));
+  }
+
   /** Sign in with a staff member's own account (username + password); otherwise exactly signIn(). */
   async function signInWithAccount(username, password) {
     return finishSignIn(await Api.loginAccount(username, password));
@@ -756,6 +769,8 @@ const Storage = (() => {
     outcome = null;
     readiness = null;
     const result = await hydrate();
+    // Signed in, but a new password must be chosen first (0019): the app asks for it.
+    if (result.passwordChange) return { ok: true, result, passwordChange: true };
     return result.mode === 'api'
       ? { ok: true, result }
       : { ok: false, code: 'hydrate_failed',
@@ -854,9 +869,10 @@ const Storage = (() => {
     create, update, remove, action, reload, refreshAll, load, loadOne, loadPage,
     generateId, getSettings, saveSettings, putSettings, getTheme, saveTheme,
     seedIfEmpty, resetToSeedData,
-    hydrate, whenReady, ready, signIn, signInWithAccount, signOut,
+    hydrate, whenReady, ready, signIn, signInWithAccount, signInWithIdentifier, signOut,
     get mode() { return mode; },
     get account() { return signedInAccount; },
+    get sharedPassphrase() { return sharedPassphrase; },
     get fullAccess() { return !!(grant && grant.fullAccess); },
     get permissions() { return grant ? [...grant.permissions] : null; },
     can, isDenied, blockPage,

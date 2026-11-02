@@ -26,6 +26,9 @@
 -- the foreign keys.
 -- 0010: attendance references mechanics or staff (CASCADE), and nothing
 -- references it, so it goes first of all.
+-- 0019: failed sign-in counts the suite caused, and the passphrase switch back on.
+DELETE FROM auth_throttle;
+UPDATE auth_settings SET passphrase_enabled = 1, updated_at = NULL, updated_by = NULL WHERE id = 1;
 -- Notifications (0017) the suite's events raised: read markers first.
 DELETE FROM notification_reads;
 DELETE FROM notifications;

@@ -318,6 +318,10 @@ const ROUTES = [
   // (routes/website-forms.js).
   'POST /api/forms/submit',
   ...NOTIFICATION_ROUTES,
+  // The signed-in person's own password, and the shared passphrase switch
+  // (0019): public dispatch, each checks the person's own session itself.
+  'POST /api/session/password',
+  'PUT /api/session/passphrase',
   'GET /api/settings',
   'PUT /api/settings',
   // Signing in and out. Public, necessarily: a browser with no credential
@@ -446,7 +450,13 @@ export default {
       // permission this request needs (lib/permissions.js), checked against
       // the caller's role as the gate read it from the database. A route the
       // permission table does not know needs full access -- fail closed.
-      if (!can(principalOf(request), need)) {
+      const who = principalOf(request);
+      // A password someone else set (a new account, an administrator's reset)
+      // must be replaced by its owner before anything else (0019).
+      if (who && who.passwordChangeRequired) {
+        return fail('password_change_required', 'Choose a new password before continuing.', 403);
+      }
+      if (!can(who, need)) {
         return fail('forbidden', 'Your role does not allow this.', 403);
       }
       return handler(request, env, ...args);
@@ -474,6 +484,11 @@ export default {
     // a credential, so requiring one here would be a closed loop. Each of the
     // three answers is written to give nothing away -- see routes/session.js.
     if (url.pathname === '/api/session') return session(request, env);
+    // The signed-in account's own password, and the shared passphrase switch
+    // (0019). Each checks the session it needs itself: changing a password must
+    // work while "must change password" holds everything else back.
+    if (url.pathname === '/api/session/password') return session(request, env, 'password');
+    if (url.pathname === '/api/session/passphrase') return session(request, env, 'passphrase');
 
     // Public, and dispatched before the gate: Meta cannot hold a session.
     // It is protected instead by the verify token (GET) and the App Secret

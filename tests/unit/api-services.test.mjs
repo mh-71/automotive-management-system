@@ -408,7 +408,7 @@ console.log('\n-- 11. Routing --');
     'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread',
     // Settings is a singleton: a read and a write, and no /:id — there is
     // no create or delete for a row that is permanently id 1.
-    'GET /api/settings', 'PUT /api/settings',
+    'POST /api/session/password', 'PUT /api/session/passphrase', 'GET /api/settings', 'PUT /api/settings',
     'GET /api/session', 'POST /api/session', 'DELETE /api/session',
   ]);
 }
@@ -416,7 +416,7 @@ console.log('\n-- 11. Routing --');
   const res = await call('/api/nope', { DB: stubDB({ rows: [] }) });
   const body = await res.json();
   check('unknown collection -> 404', res.status, 404);
-  check('404 advertises every route', body.error.available.length, 149);
+  check('404 advertises every route', body.error.available.length, 151);
 }
 
 console.log(`\nGET /api/services unit: ${pass} passed, ${fail} failed`);

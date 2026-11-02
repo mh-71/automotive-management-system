@@ -62,6 +62,7 @@ const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
 const PW = 'Correct-Horse-42';
+const PW2 = 'Own-Chosen-Pass-77';
 const AT = '2026-10-08T00:00:00Z';
 
 function makeD1(migrations = ALL_MIGRATIONS, before = null) {
@@ -129,7 +130,10 @@ function fresh() {
     const made = await api('POST', '/api/accounts', { staffId: `STF-000${n}`, username, role, password: PW });
     if (made.status !== 201) throw new Error(`could not create ${username}: ${made.text}`);
     const s = await api('POST', '/api/session', { username, password: PW }, 'none');
-    return { id: made.body.data.id, cookie: s.cookie };
+    // 0019: an account an administrator created must choose its own password first.
+    const changed = await api('POST', '/api/session/password', { currentPassword: PW, newPassword: PW2 }, s.cookie);
+    if (changed.status !== 204) throw new Error(`could not change ${username}'s password: ${changed.text}`);
+    return { id: made.body.data.id, cookie: changed.cookie };
   };
   return { DB, env, api, one, person };
 }
@@ -180,7 +184,9 @@ console.log('\n-- B. every route has a permission --');
   const r = await worker.fetch(new Request('http://x/api/__nope__'), { DB: makeD1(), API_TOKEN: TOKEN }, { waitUntil() {} });
   const routes = (await r.json()).error.available;
   const PUBLIC = ['GET /api/health', 'GET /api/session', 'POST /api/session', 'DELETE /api/session', 'GET /api/webhooks/messenger', 'POST /api/webhooks/messenger',
-    'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp', 'POST /api/forms/submit'];
+    'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp', 'POST /api/forms/submit',
+    // 0019: dispatched before the gate; each checks the person's own session itself.
+    'POST /api/session/password', 'PUT /api/session/passphrase'];
   const needOf = (route) => {
     const [method, path] = route.split(' ');
     const m = /^\/api\/([a-z-]+)(?:\/:id(?:\/([a-z-]+))?)?$/.exec(path);
@@ -357,7 +363,7 @@ console.log('\n-- E. privilege escalation --');
     (await h.api('PUT', `/api/accounts/${sup.id}`, { roleId: small.body.data.id }, keeper.cookie)).status], [403, 403, 403]);
   check('   ...and the Super Admin is untouched', h.one('SELECT status, role_id FROM user_accounts WHERE id = ?', sup.id), { status: 'Active', role_id: 'ROL-0001' });
 
-  const clerk2 = (await h.api('POST', '/api/session', { username: 'clerk', password: PW }, 'none')).cookie;
+  const clerk2 = (await h.api('POST', '/api/session', { username: 'clerk', password: PW2 }, 'none')).cookie;
   check('a role without Roles: assign cannot assign roles at all', (await h.api('PUT', `/api/accounts/${clerk.id}`, { roleId: 'ROL-0008' }, clerk2)).status, 403);
   check('nothing the browser sends counts: role, permissions or fullAccess in a body are refused or ignored', [
     (await h.api('POST', '/api/customers', { name: 'X', phone: '01700000012', role: 'Super Admin', permissions: ['*'] }, clerk2)).status,
@@ -379,7 +385,7 @@ console.log('\n-- F. effects --');
   check('   ...a role change applies on the very next request, without signing in again', (await h.api('GET', '/api/invoices', undefined, mech.cookie)).status, 200);
   await h.api('PUT', `/api/accounts/${mech.id}`, { role: 'Accountant' });
   check('moving an account to another role signs it out (its next request is 401)', (await h.api('GET', '/api/customers', undefined, mech.cookie)).status, 401);
-  const again = (await h.api('POST', '/api/session', { username: 'mech', password: PW }, 'none')).cookie;
+  const again = (await h.api('POST', '/api/session', { username: 'mech', password: PW2 }, 'none')).cookie;
   check('   ...and after signing in it has the new role', (await h.api('GET', '/api/session', undefined, again)).body.data.account.role, 'Accountant');
 
   const clerk = await h.person(5, 'clerk', 'Staff');

@@ -151,7 +151,7 @@ console.log('\n-- 3. what a session unlocks --');
   check('GET /api/session reports the session', body.data.authenticated, true);
   check('   ...and says signing in is possible here', body.data.passphrase, true);
   // A passphrase session names nobody: no `account` key (only an account session has one, 0009).
-  check('   ...and nothing else at all (no account: a passphrase session names nobody)', Object.keys(body.data).sort(), ['accounts', 'authenticated', 'fullAccess', 'passphrase', 'permissions']);
+  check('   ...and nothing else at all (no account: a passphrase session names nobody)', Object.keys(body.data).sort(), ['accounts', 'authenticated', 'fullAccess', 'passphrase', 'permissions', 'sharedPassphrase']);
   // 0018: the passphrase keeps the full access it always had, and says so (for display only).
   check('   ...the passphrase has full access, every permission listed', [body.data.fullAccess, body.data.permissions.length > 50, body.data.permissions.includes('roles.edit')], [true, true, true]);
 }

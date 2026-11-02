@@ -263,6 +263,27 @@ const Api = (() => {
     return res;
   }
 
+  /**
+   * Sign in with one identifier -- username, e-mail or Staff ID -- and a
+   * password (0019). Every refusal reads the same: the server does not say
+   * which part was wrong, so neither does this. Too many attempts is the one
+   * different answer (429), with the server's own words.
+   */
+  async function loginIdentifier(identifier, password) {
+    const res = await post('/session', { identifier, password });
+    if (!res.ok && res.status === 401) {
+      return { ok: false, code: 'unauthorized', message: 'The sign-in details are not correct. Check them and try again.' };
+    }
+    if (!res.ok && res.status === 429) {
+      return { ok: false, code: 'too_many_attempts', message: res.message || 'Too many sign-in attempts. Please wait and try again.' };
+    }
+    if (!res.ok) return { ok: false, code: res.code, message: 'Signing in is not possible right now. Please try again in a moment.' };
+    return res;
+  }
+
+  /** The signed-in account replaces its own password (0019). */
+  const changePassword = (currentPassword, newPassword) => post('/session/password', { currentPassword, newPassword });
+
   /** End this browser's session. */
   const logout = () => request('DELETE', '/session');
 
@@ -279,13 +300,18 @@ const Api = (() => {
     const data = res.data || {};
     const account = data.account && typeof data.account === 'object'
       ? { id: String(data.account.id || ''), username: String(data.account.username || ''), role: String(data.account.role || ''),
-          ...(data.account.roleId ? { roleId: String(data.account.roleId) } : {}) }
+          ...(data.account.roleId ? { roleId: String(data.account.roleId) } : {}),
+          ...(data.account.name ? { name: String(data.account.name) } : {}),
+          ...(data.account.staffId ? { staffId: String(data.account.staffId) } : {}),
+          ...(data.account.passwordChangeRequired === true ? { passwordChangeRequired: true } : {}) }
       : null;
     // What the signed-in caller may do (0018). For showing only what will work;
     // the server checks every request itself.
     // null when the server does not say (one older than 0018): nothing is hidden then.
     const permissions = Array.isArray(data.permissions) ? data.permissions.filter(p => typeof p === 'string') : null;
     return { ok: true, authenticated: data.authenticated === true, passphrase: data.passphrase === true, accounts: data.accounts === true, account,
+      // Whether the shared workshop passphrase may still sign in (0019); true when the server does not say.
+      sharedPassphrase: data.sharedPassphrase !== false,
       fullAccess: data.fullAccess === true, permissions };
   }
 
@@ -304,7 +330,7 @@ const Api = (() => {
   }
 
   return { configure, hasToken, request, get, post, put, delete: del, probe,
-           login, loginAccount, logout, session,
+           login, loginAccount, loginIdentifier, changePassword, logout, session,
            get baseUrl() { return base(); } };
 })();
 
