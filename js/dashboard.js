@@ -46,13 +46,17 @@
       { label: "Today's Appointments",value: todaysAppts,             tone: 'amber', icon: 'M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10z' },
       { label: 'Active Job Cards',    value: activeJobs,              tone: 'warn',  icon: 'M20 6h-4V4c0-1.1-.9-2-2-2h-4C8.9 2 8 2.9 8 4v2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z' },
       { label: 'Completed Jobs',      value: completedJobs,           tone: 'good',  icon: 'M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z' },
-      { label: "Today's Revenue",     value: Utils.money(todayRevenue), tone: 'good', icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.9 2.7-1.9 1.8 0 2.4.8 2.5 2.1h2.2c-.1-1.8-1.2-3.4-3.3-3.9V3h-3v2.1c-1.9.4-3.5 1.7-3.5 3.6 0 2.3 1.9 3.5 4.7 4.1 2.5.6 3 1.5 3 2.4 0 .7-.5 1.8-2.7 1.8-2.1 0-2.9-.9-3-2.1H8.1c.1 2.3 1.9 3.6 3.9 4v2.1h3v-2.1c1.9-.4 3.5-1.5 3.5-3.7 0-2.8-2.4-3.7-4.7-4.3z' },
-      { label: "Today's Expenses",    value: Utils.money(todayExpenseTotal), tone: 'bad', icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.9 2.7-1.9 1.8 0 2.4.8 2.5 2.1h2.2c-.1-1.8-1.2-3.4-3.3-3.9V3h-3v2.1c-1.9.4-3.5 1.7-3.5 3.6 0 2.3 1.9 3.5 4.7 4.1 2.5.6 3 1.5 3 2.4 0 .7-.5 1.8-2.7 1.8-2.1 0-2.9-.9-3-2.1H8.1c.1 2.3 1.9 3.6 3.9 4v2.1h3v-2.1c1.9-.4 3.5-1.5 3.5-3.7 0-2.8-2.4-3.7-4.7-4.3z' },
-      { label: 'Total Due',           value: Utils.money(totalDue),   tone: 'bad',   icon: 'M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z' },
+      { label: "Today's Revenue",     value: Utils.money(todayRevenue), from: ['payments'], tone: 'good', icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.9 2.7-1.9 1.8 0 2.4.8 2.5 2.1h2.2c-.1-1.8-1.2-3.4-3.3-3.9V3h-3v2.1c-1.9.4-3.5 1.7-3.5 3.6 0 2.3 1.9 3.5 4.7 4.1 2.5.6 3 1.5 3 2.4 0 .7-.5 1.8-2.7 1.8-2.1 0-2.9-.9-3-2.1H8.1c.1 2.3 1.9 3.6 3.9 4v2.1h3v-2.1c1.9-.4 3.5-1.5 3.5-3.7 0-2.8-2.4-3.7-4.7-4.3z' },
+      { label: "Today's Expenses",    value: Utils.money(todayExpenseTotal), from: ['expenses'], tone: 'bad', icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.9 2.7-1.9 1.8 0 2.4.8 2.5 2.1h2.2c-.1-1.8-1.2-3.4-3.3-3.9V3h-3v2.1c-1.9.4-3.5 1.7-3.5 3.6 0 2.3 1.9 3.5 4.7 4.1 2.5.6 3 1.5 3 2.4 0 .7-.5 1.8-2.7 1.8-2.1 0-2.9-.9-3-2.1H8.1c.1 2.3 1.9 3.6 3.9 4v2.1h3v-2.1c1.9-.4 3.5-1.5 3.5-3.7 0-2.8-2.4-3.7-4.7-4.3z' },
+      { label: 'Total Due',           value: Utils.money(totalDue),   from: ['invoices', 'payments'], tone: 'bad',   icon: 'M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z' },
       { label: 'Low Stock Items',     value: lowStock,                tone: 'bad',   icon: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z' }
     ];
 
-    document.getElementById('statsGrid').innerHTML = stats.map(s => `
+    // Roles & Permissions (0018): a figure drawn from records this role may not
+    // read would only ever show 0, so it is left out rather than shown as fact.
+    const denied = c => typeof Storage.isDenied === 'function' && Storage.isDenied(c);
+    const shown = stats.filter(s => !(s.from || []).some(denied));
+    document.getElementById('statsGrid').innerHTML = shown.map(s => `
       <div class="stat">
         <div class="stat__icon stat__icon--${s.tone}">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="${s.icon}"/></svg>
@@ -67,6 +71,11 @@
   /* ---------- revenue chart (last 7 days, pure HTML/CSS) ---------- */
 
   function renderRevenueChart() {
+    if (typeof Storage.isDenied === 'function' && Storage.isDenied('payments')) {
+      document.getElementById('revChart').innerHTML = '<p class="muted" style="margin:auto">Your role does not include payments, so revenue is not shown.</p>';
+      document.getElementById('revSummary').innerHTML = '';
+      return;
+    }
     // Exclude Void payments so a voided payment never counts as revenue.
     const payments = Storage.getData('payments').filter(p => p.status !== 'Void');
     const days = [];

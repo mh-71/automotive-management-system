@@ -55,7 +55,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AT = '2026-10-08T00:00:00Z';
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
-  '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0010_attendance.sql'];
+  '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0010_attendance.sql', '0018_roles_permissions.sql'];
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -189,7 +189,7 @@ console.log('\n-- B. authorization --');
   check('the passphrase session may read and record', [(await h.api('GET', '/api/attendance', undefined, owner)).status,
     (await h.api('POST', '/api/attendance', NEW(), owner)).status], [200, 201]);
   check('so may the machine token', (await h.api('GET', '/api/attendance/ATT-0001')).status, 200);
-  const acct = await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Administrator', password: PW }, owner);
+  const acct = await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Super Admin', password: PW }, owner);
   const cookie = (await h.api('POST', '/api/session', { username: 'nadia', password: PW }, 'none')).cookie;
   check('and an account session (every account is an Administrator; nothing narrower exists)',
     [acct.status, (await h.api('POST', '/api/attendance', NEW({ staffId: 'STF-0001' }), cookie)).status], [201, 201]);
@@ -320,9 +320,9 @@ console.log('\n-- F. compatibility --');
   check('recording attendance changes no other table', counts(), before);
   check('the staff roster still lists everyone', (await h.api('GET', '/api/staff')).body?.data?.length, 6);
   const routes = (await h.api('GET', '/api/health')).body?.data?.routes ?? [];
-  check('the registry holds the four attendance routes (144 with the leave routes of 0011, the activity log of 0012, the tools routes of 0013, the Messenger routes of 0014 the WhatsApp routes of 0015 and the Notifications routes of 0017)',
+  check('the registry holds the four attendance routes (149 with the leave routes of 0011, the activity log of 0012, the tools routes of 0013, the Messenger routes of 0014 the WhatsApp routes of 0015 the Notifications routes of 0017 and the Roles routes of 0018)',
     [routes.length, routes.filter((r) => r.includes('/api/attendance'))],
-    [144, ['GET /api/attendance', 'POST /api/attendance', 'GET /api/attendance/:id', 'PUT /api/attendance/:id']]);
+    [149, ['GET /api/attendance', 'POST /api/attendance', 'GET /api/attendance/:id', 'PUT /api/attendance/:id']]);
   const del = await h.api('DELETE', '/api/mechanics/MEC-0004');
   check('deleting an unused mechanic (as before) takes its attendance with it', [del.status, h.one("SELECT count(*) AS n FROM attendance WHERE mechanic_id = 'MEC-0004'").n], [200, 0]);
   check('a mechanic with job cards still cannot be deleted, so their attendance stays', [(await h.api('DELETE', '/api/mechanics/MEC-0001')).status, h.one('SELECT count(*) AS n FROM attendance').n], [409, 1]);

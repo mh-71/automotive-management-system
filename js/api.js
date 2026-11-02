@@ -278,9 +278,15 @@ const Api = (() => {
     if (!res.ok) return { ok: false, authenticated: false, passphrase: false, accounts: false, account: null, code: res.code };
     const data = res.data || {};
     const account = data.account && typeof data.account === 'object'
-      ? { id: String(data.account.id || ''), username: String(data.account.username || ''), role: String(data.account.role || '') }
+      ? { id: String(data.account.id || ''), username: String(data.account.username || ''), role: String(data.account.role || ''),
+          ...(data.account.roleId ? { roleId: String(data.account.roleId) } : {}) }
       : null;
-    return { ok: true, authenticated: data.authenticated === true, passphrase: data.passphrase === true, accounts: data.accounts === true, account };
+    // What the signed-in caller may do (0018). For showing only what will work;
+    // the server checks every request itself.
+    // null when the server does not say (one older than 0018): nothing is hidden then.
+    const permissions = Array.isArray(data.permissions) ? data.permissions.filter(p => typeof p === 'string') : null;
+    return { ok: true, authenticated: data.authenticated === true, passphrase: data.passphrase === true, accounts: data.accounts === true, account,
+      fullAccess: data.fullAccess === true, permissions };
   }
 
   /**

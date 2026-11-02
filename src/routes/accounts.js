@@ -12,10 +12,14 @@
    (MEC-0001) or any other employee (STF-0001) -- linked by foreign key
    and copying nothing about the person (migration 0009).
 
-   WHO MAY CALL: an administrator -- the workshop passphrase session, the
-   machine token, or an account whose role is Administrator. The router's
-   gate has already authenticated the caller; this file AUTHORIZES, on
-   every route, whatever the page shows or hides.
+   WHO MAY CALL (0018): a caller whose role has the User Accounts
+   permission for the route (users.view / create / edit / manage) -- the
+   router checks it before this runs -- and, to choose an account's role,
+   Roles: assign (roles.manage). On top of that, this file enforces:
+     * Nobody can give an account a role with permissions they do not hold
+       themselves, and only a full-access caller can give Super Admin.
+     * Nobody can switch off, reset, or change the role of an account whose
+       role holds permissions they do not (no acting on someone above you).
 
    WHAT NEVER LEAVES: password hashes, session versions, failed-attempt
    counts. A record says only whether the account is temporarily locked.
@@ -26,10 +30,10 @@
        re-activated; an account whose staff member becomes inactive can no
        longer sign in (the gate checks on every request).
      * Nobody can deactivate their own account or change their own role.
-     * An account session cannot deactivate the last active administrator
-       account. (The workshop passphrase still signs in, so its holder
-       may -- nobody can be locked out.) The check and the change are one
-       statement, so two requests at once cannot both pass it.
+     * An account session cannot deactivate, or move off Super Admin, the
+       last active Super Admin account. (The workshop passphrase still signs
+       in, so its holder may -- nobody can be locked out.) The check and the
+       change are one statement, so two requests at once cannot both pass it.
      * Deactivating an account or setting a new password ends that
        account's sessions everywhere (session_version + 1).
      * Password reset by e-mail does not exist: there is no e-mail
@@ -42,37 +46,53 @@ import {
 import { readJsonBody, nowIso, allocateId, constraintFailure } from '../lib/write.js';
 import { principalOf } from '../lib/auth.js';
 import {
-  ACCOUNT_ROLES, ACCOUNT_STATUSES, ACCOUNT_ID, normaliseUsername, passwordProblem, hashPassword,
+  ACCOUNT_STATUSES, ACCOUNT_ID, normaliseUsername, passwordProblem, hashPassword,
 } from '../lib/accounts.js';
+import { can } from '../lib/permissions.js';
+import { findRole, loadRole, canHandleRole } from '../lib/roles.js';
 
 const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 500;
 const PERSON_ID = /^(MEC|STF)-\d{4,}$/;
 
-const CREATE_KEYS = ['staffId', 'username', 'role', 'password'];
-const UPDATE_KEYS = ['status', 'role'];
+const CREATE_KEYS = ['staffId', 'username', 'role', 'roleId', 'password'];
+const UPDATE_KEYS = ['status', 'role', 'roleId'];
 const PASSWORD_KEYS = ['password'];
 
 /* ---------- authorization ---------- */
 
-/** May this caller manage accounts? Only an administrator. Also used by routes/tools.js. */
-export function isAdmin(who) {
-  if (!who) return false;
-  if (who.kind === 'token' || who.kind === 'passphrase') return true;
-  return who.kind === 'account' && who.role === 'Administrator';
-}
+/** May this caller do this to accounts? The router has checked already; this is the second lock. */
+const allowed = (who, permission) => can(who, permission);
+const forbidden = (message = 'Your role does not allow this.') => fail('forbidden', message, 403);
+const ABOVE_YOU = 'This account\'s role has permissions your own role does not. You cannot change it.';
 
-const forbidden = () => fail('forbidden', 'Only an administrator can manage user accounts.', 403);
+/** The role an account holds (null for none), loaded with its permissions. */
+const roleOf = (env, row) => (row.role_id ? loadRole(env, row.role_id) : Promise.resolve(null));
+
+/** A role named in a body (roleId or role), active and within the caller's reach -- or the problem. */
+async function chosenRole(env, who, body) {
+  const ref = body.roleId !== undefined ? body.roleId : body.role;
+  if (typeof ref !== 'string' || !ref.trim()) return { field: 'Choose a role.' };
+  const role = await findRole(env, ref);
+  if (!role) return { field: 'No such role.' };
+  if (role.status !== 'Active') return { field: 'That role is switched off.' };
+  if (!allowed(who, 'roles.manage')) return { forbidden: 'Your role cannot assign roles to accounts.' };
+  if (!canHandleRole(who, role)) {
+    return { forbidden: role.fullAccess ? 'Only a Super Admin can make someone a Super Admin.' : 'You cannot give a role with permissions your own role does not have.' };
+  }
+  return { role };
+}
 
 /* ---------- reading ---------- */
 
 const SELECT = `
-  SELECT a.id, a.mechanic_id, a.staff_id, a.username, a.role, a.status, a.last_login_at, a.locked_until,
-         a.password_changed_at, a.created_at, a.updated_at,
+  SELECT a.id, a.mechanic_id, a.staff_id, a.username, a.role, a.role_id, a.status, a.last_login_at, a.locked_until,
+         a.password_changed_at, a.created_at, a.updated_at, r.name AS role_name, r.full_access AS role_full_access,
          COALESCE(m.name, s.name) AS person_name,
          COALESCE(m.status, s.status) AS person_status,
          COALESCE(p.designation, s.designation, CASE WHEN m.id IS NOT NULL THEN 'Mechanic' END) AS designation
     FROM user_accounts a
+    LEFT JOIN roles r ON r.id = a.role_id
     LEFT JOIN mechanics m ON m.id = a.mechanic_id
     LEFT JOIN staff p ON p.mechanic_id = a.mechanic_id
     LEFT JOIN staff s ON s.id = a.staff_id`;
@@ -87,7 +107,8 @@ function toRecord(row, who, now = new Date().toISOString()) {
     staffStatus: row.person_status ?? '',
     designation: row.designation ?? '',
     username: row.username,
-    role: row.role,
+    role: row.role_name ?? '',
+    roleId: row.role_id ?? null,
     status: row.status,
     locked: Boolean(row.locked_until && row.locked_until > now),
     lastLoginAt: row.last_login_at ?? '',
@@ -125,7 +146,7 @@ export async function listAccounts(request, env, url) {
   if (request.method !== 'GET') return methodNotAllowed(['GET', 'POST']);
   if (!env.DB) return noDatabase();
   const who = principalOf(request);
-  if (!isAdmin(who)) return forbidden();
+  if (!allowed(who, 'users.view')) return forbidden();
 
   const limit = readIntParam(url, 'limit', { def: DEFAULT_LIMIT, min: 1, max: MAX_LIMIT });
   if (limit.error) return fail('invalid_parameter', limit.error, 400);
@@ -138,14 +159,11 @@ export async function listAccounts(request, env, url) {
   if (status.value !== null && !ACCOUNT_STATUSES.includes(status.value)) {
     return fail('invalid_parameter', '`status` must be Active or Inactive.', 400);
   }
-  if (role.value !== null && !ACCOUNT_ROLES.includes(role.value)) {
-    return fail('invalid_parameter', `\`role\` must be one of: ${ACCOUNT_ROLES.join(', ')}.`, 400);
-  }
-
   const needle = q.value === null ? null : q.value.toLowerCase();
   const where = `
      WHERE (?1 IS NULL OR a.status = ?1)
-       AND (?2 IS NULL OR a.role = ?2)
+       AND (?2 IS NULL OR a.role_id = ?2
+            OR a.role_id = (SELECT id FROM roles WHERE name = ?2 COLLATE NOCASE))
        AND (?3 IS NULL
             OR instr(lower(COALESCE(m.name, s.name, '')), ?3) > 0
             OR instr(lower(COALESCE(a.mechanic_id, a.staff_id)), ?3) > 0
@@ -157,13 +175,23 @@ export async function listAccounts(request, env, url) {
     ).bind(status.value, role.value, needle, limit.value, offset.value).all();
     const total = await env.DB.prepare(
       `SELECT count(*) AS n FROM user_accounts a
+         LEFT JOIN roles r ON r.id = a.role_id
          LEFT JOIN mechanics m ON m.id = a.mechanic_id
          LEFT JOIN staff s ON s.id = a.staff_id ${where}`
     ).bind(status.value, role.value, needle).first();
     const rows = results ?? [];
+    // Every role, for the filter; `assignable` says which this caller may give.
+    const { results: roleRows } = await env.DB.prepare('SELECT id FROM roles ORDER BY is_system DESC, id').all();
+    const mayAssign = allowed(who, 'roles.manage');
+    const roles = [];
+    for (const r of roleRows || []) {
+      const role = await loadRole(env, r.id);
+      roles.push({ id: role.id, name: role.name, status: role.status, system: role.system,
+        assignable: mayAssign && role.status === 'Active' && canHandleRole(who, role) });
+    }
     return ok(rows.map((r) => toRecord(r, who)), {
       count: rows.length, total: total ? total.n : rows.length, limit: limit.value, offset: offset.value,
-      roles: ACCOUNT_ROLES,
+      roles,
     });
   } catch (err) {
     console.error('GET /api/accounts failed:', err && err.message);
@@ -176,7 +204,7 @@ export async function getAccount(request, env, rawId) {
   if (request.method !== 'GET') return methodNotAllowed(['GET', 'PUT']);
   if (!env.DB) return noDatabase();
   const who = principalOf(request);
-  if (!isAdmin(who)) return forbidden();
+  if (!allowed(who, 'users.view')) return forbidden();
   const id = readAccountId(rawId);
   if (!id) return fail('invalid_id', 'That is not an account id.', 400);
   try {
@@ -225,7 +253,8 @@ function writeConflict(err) {
 export async function createAccount(request, env) {
   if (request.method !== 'POST') return methodNotAllowed(['GET', 'POST']);
   if (!env.DB) return noDatabase();
-  if (!isAdmin(principalOf(request))) return forbidden();
+  const who = principalOf(request);
+  if (!allowed(who, 'users.create')) return forbidden();
 
   const parsed = await readJsonBody(request);
   if (parsed.error) return fail('invalid_body', parsed.error, 400);
@@ -236,12 +265,15 @@ export async function createAccount(request, env) {
   if (!PERSON_ID.test(staffId)) errors.staffId = 'Choose a staff member.';
   const username = normaliseUsername(body.username);
   if (!username) errors.username = 'Use 3-32 lower-case letters, digits, dots, dashes or underscores.';
-  if (!ACCOUNT_ROLES.includes(body.role)) errors.role = `Choose one of: ${ACCOUNT_ROLES.join(', ')}.`;
+  if (body.role === undefined && body.roleId === undefined) errors.role = 'Choose a role.';
   const weak = passwordProblem(body.password, username || '');
   if (weak) errors.password = weak;
   if (Object.keys(errors).length) return unprocessable('Some account fields are not valid.', errors);
 
   try {
+    const choice = await chosenRole(env, who, body);
+    if (choice.forbidden) return forbidden(choice.forbidden);
+    if (choice.field) return unprocessable('Some account fields are not valid.', { role: choice.field });
     const person = await findPerson(env, staffId);
     if (!person) return unprocessable('Some account fields are not valid.', { staffId: 'No such staff member.' });
     if (person.status !== 'Active') {
@@ -259,10 +291,14 @@ export async function createAccount(request, env) {
     }
     const now = nowIso();
     await env.DB.prepare(
-      `INSERT INTO user_accounts (id, mechanic_id, staff_id, username, role, status, password_hash, password_changed_at, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, 'Active', ?6, ?7, ?7)`
-    ).bind(allocated.id, person.isMechanic ? staffId : null, person.isMechanic ? null : staffId, username, body.role, hash, now).run();
-    return ok(toRecord(await findAccount(env, allocated.id), principalOf(request)), {}, 201);
+      `INSERT INTO user_accounts (id, mechanic_id, staff_id, username, role, role_id, status, password_hash, password_changed_at, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?8, 'Active', ?6, ?7, ?7
+        WHERE EXISTS (SELECT 1 FROM roles WHERE id = ?8 AND status = 'Active')`
+    ).bind(allocated.id, person.isMechanic ? staffId : null, person.isMechanic ? null : staffId, username,
+      choice.role.name, hash, now, choice.role.id).run();
+    const created = await findAccount(env, allocated.id);
+    if (!created) return conflict('That role was switched off meanwhile. Choose another role.', { field: 'role', fields: { role: 'That role is switched off.' } });
+    return ok(toRecord(created, who), {}, 201);
   } catch (err) {
     const mapped = writeConflict(err);
     if (mapped) return mapped;
@@ -276,7 +312,7 @@ export async function updateAccount(request, env, rawId) {
   if (request.method !== 'PUT') return methodNotAllowed(['GET', 'PUT']);
   if (!env.DB) return noDatabase();
   const who = principalOf(request);
-  if (!isAdmin(who)) return forbidden();
+  if (!allowed(who, 'users.edit')) return forbidden();
   const id = readAccountId(rawId);
   if (!id) return fail('invalid_id', 'That is not an account id.', 400);
 
@@ -285,8 +321,8 @@ export async function updateAccount(request, env, rawId) {
   const body = parsed.value;
   const errors = unknownKeys(body, UPDATE_KEYS);
   if (body.status !== undefined && !ACCOUNT_STATUSES.includes(body.status)) errors.status = 'Choose Active or Inactive.';
-  if (body.role !== undefined && !ACCOUNT_ROLES.includes(body.role)) errors.role = `Choose one of: ${ACCOUNT_ROLES.join(', ')}.`;
-  if (!Object.keys(errors).length && body.status === undefined && body.role === undefined) {
+  const changingRole = body.role !== undefined || body.roleId !== undefined;
+  if (!Object.keys(errors).length && body.status === undefined && !changingRole) {
     errors.status = 'Nothing to change.';
   }
   if (Object.keys(errors).length) return unprocessable('Some account fields are not valid.', errors);
@@ -295,11 +331,22 @@ export async function updateAccount(request, env, rawId) {
     const row = await findAccount(env, id);
     if (!row) return fail('not_found', 'No account with that id.', 404);
     const self = who.kind === 'account' && who.id === id;
+    // Nobody acts on an account whose role reaches further than their own.
+    // (An account with no role has no permissions; giving it one needs Roles: assign.)
+    const current = await roleOf(env, row);
+    if (!self && !(current ? canHandleRole(who, current) : allowed(who, 'roles.manage'))) return forbidden(ABOVE_YOU);
+    let next = current;
+    if (changingRole) {
+      const choice = await chosenRole(env, who, body);
+      if (choice.forbidden) return forbidden(choice.forbidden);
+      if (choice.field) return unprocessable('Some account fields are not valid.', { role: choice.field });
+      next = choice.role;
+      if (self && next.id !== row.role_id) {
+        return conflict('You cannot change your own role.', { field: 'role', fields: { role: 'You cannot change your own role.' } });
+      }
+    }
     if (self && body.status === 'Inactive') {
       return conflict('You cannot deactivate your own account.', { field: 'status', fields: { status: 'You cannot deactivate your own account.' } });
-    }
-    if (self && body.role !== undefined && body.role !== row.role) {
-      return conflict('You cannot change your own role.', { field: 'role', fields: { role: 'You cannot change your own role.' } });
     }
     if (body.status === 'Active' && row.status !== 'Active' && row.person_status !== 'Active') {
       return conflict('This staff member is inactive. Activate them in the Staff List first.', {
@@ -308,24 +355,30 @@ export async function updateAccount(request, env, rawId) {
     }
 
     const status = body.status ?? row.status;
-    const role = body.role ?? row.role;
     const deactivating = row.status === 'Active' && status === 'Inactive';
-    const demoting = row.role === 'Administrator' && role !== 'Administrator';
-    // An account session may not leave the workshop without an active administrator account.
-    const guardLastAdmin = who.kind === 'account' && row.status === 'Active' && row.role === 'Administrator' && (deactivating || demoting);
+    const wasSuper = Number(row.role_full_access) === 1;
+    const leavingSuper = wasSuper && !!next && !next.fullAccess;
+    const roleChanged = !!next && next.id !== row.role_id;
+    // An account session may not leave the workshop without an active Super Admin account.
+    const guardLastSuper = who.kind === 'account' && row.status === 'Active' && wasSuper && (deactivating || leavingSuper);
     const now = nowIso();
     const res = await env.DB.prepare(
       `UPDATE user_accounts
-          SET status = ?2, role = ?3, updated_at = ?4,
-              session_version = session_version + ?5
+          SET status = ?2, role_id = ?3, role = ?4, updated_at = ?5,
+              session_version = session_version + ?6
         WHERE id = ?1
-          AND (?6 = 0 OR (SELECT count(*) FROM user_accounts
-                           WHERE status = 'Active' AND role = 'Administrator' AND id <> ?1) > 0)`
-    ).bind(id, status, role, now, deactivating ? 1 : 0, guardLastAdmin ? 1 : 0).run();
+          AND (?3 IS NULL OR EXISTS (SELECT 1 FROM roles WHERE id = ?3 AND (status = 'Active' OR ?3 IS ?8)))
+          AND (?7 = 0 OR (SELECT count(*) FROM user_accounts u JOIN roles r ON r.id = u.role_id
+                           WHERE u.status = 'Active' AND r.full_access = 1 AND u.id <> ?1) > 0)`
+    ).bind(id, status, next ? next.id : null, next ? next.name : row.role, now,
+      deactivating || roleChanged ? 1 : 0, guardLastSuper ? 1 : 0, row.role_id).run();
     if (!res.meta || res.meta.changes !== 1) {
-      return conflict('This is the last active administrator account. Add or activate another administrator first.', {
-        field: 'status', fields: { status: 'This is the last active administrator account.' },
-      });
+      if (guardLastSuper) {
+        return conflict('This is the last active Super Admin account. Make another account Super Admin first.', {
+          field: deactivating ? 'status' : 'role', fields: { [deactivating ? 'status' : 'role']: 'This is the last active Super Admin account.' },
+        });
+      }
+      return conflict('That role was switched off meanwhile. Choose another role.', { field: 'role', fields: { role: 'That role is switched off.' } });
     }
     return ok(toRecord(await findAccount(env, id), who));
   } catch (err) {
@@ -340,7 +393,7 @@ export async function updateAccount(request, env, rawId) {
 export async function setAccountPassword(request, env, rawId) {
   if (!env.DB) return noDatabase();
   const who = principalOf(request);
-  if (!isAdmin(who)) return forbidden();
+  if (!allowed(who, 'users.manage')) return forbidden();
   const id = readAccountId(rawId);
   if (!id) return fail('invalid_id', 'That is not an account id.', 400);
 
@@ -351,6 +404,10 @@ export async function setAccountPassword(request, env, rawId) {
   try {
     const row = await findAccount(env, id);
     if (!row) return fail('not_found', 'No account with that id.', 404);
+    // Setting someone's password is taking over their account: never above your own reach.
+    const self = who.kind === 'account' && who.id === id;
+    const target = await roleOf(env, row);
+    if (!self && target && !canHandleRole(who, target)) return forbidden(ABOVE_YOU);
     const weak = passwordProblem(body.password, row.username);
     if (weak) errors.password = weak;
     if (Object.keys(errors).length) return unprocessable('Some account fields are not valid.', errors);

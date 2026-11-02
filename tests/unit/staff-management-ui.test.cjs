@@ -252,13 +252,12 @@ for (const [key, label] of ENTRIES) {
   ok('   ...the four summary cards', ['uacTotal', 'uacActive', 'uacInactive', 'uacNone'].every(id => u.includes(`id="${id}"`)), '');
   ok('   ...no password, hash or token anywhere in the markup', !/type="password"|password_hash|passwordHash|token/i.test(u), '');
   const r = pages['staff-roles'];
-  ok('Roles & Permissions: says there is one role (Administrator, full access), what the server checks, and that restricted roles are not available',
-    /<h2 class="rop-note__title" id="ropNoteTitle">How access works today<\/h2>/.test(r) && /<strong>one role: Administrator<\/strong>/.test(r)
-      && /<strong>only an administrator can manage user accounts<\/strong>/.test(r) && /are <strong>not available<\/strong>/.test(r) && /This page changes nothing/.test(r), '');
-  check('   ...a matrix of what can be done in each area, and who can use it', [...r.matchAll(/<th scope="col">([^<]+)<\/th>/g)].map(m => m[1]),
-    ['Area', 'View', 'Create', 'Edit', 'Delete', 'Other actions', 'Who can use it']);
-  ok('   ...Edit permissions is marked unavailable and says why', /<button type="button" class="btn btn--ghost btn--sm" id="ropEdit" aria-disabled="true" aria-describedby="ropEditWhy">/.test(r)
-    && /id="ropEditWhy">Not available: permissions cannot be edited until the server enforces them\.</.test(r), '');
+  ok('Roles & Permissions: explains the protected Super Admin role, that the server enforces every permission, and that nobody grants more than they hold',
+    /<h2 class="rop-note__title" id="ropNoteTitle">How access works<\/h2>/.test(r) && /<strong>Super Admin<\/strong> is the protected system role/.test(r)
+      && /the server refuses it even if it is tried directly/.test(r) && /Nobody can give a role, or an account, more than their own role has/.test(r), '');
+  check('   ...a permission matrix per module (View to Export), and a user role assignment table', [...r.matchAll(/<th scope="col">([^<]+)<\/th>/g)].map(m => m[1]),
+    ['Module', 'View', 'Create', 'Edit', 'Delete', 'Approve', 'Manage', 'Export', 'Staff member', 'Username', 'Status', 'Role']);
+  ok('   ...New role, search, status filter and the assignment card are there (shown by role)', ['id="ropCreate"', 'id="ropSearch"', 'id="ropStatus"', 'id="ropAssignCard"', 'id="ropUsers"'].every(x => r.includes(x)), '');
   ok('   ...the role list, matrix body, alert and count are filled by its script', ['ropRoleList', 'ropBody', 'ropAlert', 'ropCount', 'ropWho', 'ropRoleMembers'].every(id => r.includes(`id="${id}"`)), '');
   ok('   ...no "example" or "demo" wording is left', !/example|demo/i.test(r.replace(/<!--[\s\S]*?-->/g, '')), '');
   const g = pages['staff-activity-log'];

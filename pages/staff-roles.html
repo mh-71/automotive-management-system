@@ -38,10 +38,9 @@
 
   <div id="page-content">
 
-    <!-- Roles & Permissions. Filled in by js/staff-roles.js from the Worker: the routes it
-         really serves (GET /api/health) and, for an administrator, the accounts that hold
-         each role (GET /api/accounts). Read-only: nothing here changes who may do what,
-         and the page says plainly which rules the server enforces and which it does not. -->
+    <!-- Roles & Permissions (0018). Filled in by js/staff-roles.js from the Worker: the roles and
+         their permissions (GET /api/roles), and the user accounts that hold them (GET /api/accounts).
+         Every change here is checked again by the server, which is what actually enforces it. -->
 
     <nav class="stf-crumbs" aria-label="Breadcrumb">
       <ol>
@@ -49,20 +48,34 @@
         <li aria-current="page">Roles & Permissions</li>
       </ol>
     </nav>
-    <div class="stf-head">
-      <p class="page-subtitle">Which roles exist, what each one can do in the app, and which of those rules the server enforces.</p>
+    <div class="stf-head rop-head">
+      <p class="page-subtitle">Who may do what in the workshop system. Each user account has one role; the server checks the role's permissions on every request.</p>
+      <button type="button" class="btn btn--primary btn--sm" id="ropCreate" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg><span>New role</span></button>
     </div>
     <section class="rop-note" aria-labelledby="ropNoteTitle">
-      <h2 class="rop-note__title" id="ropNoteTitle">How access works today</h2>
+      <h2 class="rop-note__title" id="ropNoteTitle">How access works</h2>
       <ul class="rop-note__list">
-        <li>There is <strong>one role: Administrator</strong>, with <strong>full access</strong> to everything the app can do. Every user account has it.</li>
-        <li>The shared workshop passphrase also gives full access. Every part of the app needs a sign-in first.</li>
-        <li>The one rule the server checks by role: <strong>only an administrator can manage user accounts</strong>.</li>
-        <li>Restricted roles such as Mechanic or Accountant are <strong>not available</strong>: the server does not check narrower permissions yet, so they could not be honoured. This page changes nothing.</li>
+        <li><strong>Super Admin</strong> is the protected system role: every permission, now and in future. It cannot be changed, switched off or deleted.</li>
+        <li>Every other role has exactly the permissions ticked here. A page or action the role does not have is hidden, and the server refuses it even if it is tried directly (by its address, or through the API).</li>
+        <li>Nobody can give a role, or an account, more than their own role has, and nobody can change the role they hold themselves.</li>
+        <li>The shared workshop passphrase still has full access, as before. Prefer personal accounts.</li>
       </ul>
       <p class="rop-note__who" id="ropWho" aria-live="polite"></p>
     </section>
     <div class="rop-alert" id="ropAlert" role="alert" hidden></div>
+
+    <div class="rop-toolbar" role="search" aria-label="Find roles">
+      <label class="rop-search">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="search" class="input" id="ropSearch" placeholder="Search roles&#8230;" aria-label="Search roles" autocomplete="off" maxlength="100">
+      </label>
+      <select class="select" id="ropStatus" aria-label="Role status">
+        <option value="">All roles</option>
+        <option value="Active">Active</option>
+        <option value="Inactive">Switched off</option>
+      </select>
+    </div>
+
     <div class="stf-roles">
       <section class="card stf-roles__list" aria-labelledby="ropRolesTitle">
         <div class="card__head">
@@ -75,30 +88,54 @@
       </section>
       <section class="card stf-roles__detail" aria-labelledby="ropRoleName">
         <div class="card__head stf-role-head">
-          <div>
+          <div class="rop-role-title">
             <h2 id="ropRoleName"><span aria-hidden="true">&#8212;</span></h2>
             <p class="stf-muted" id="ropRoleDesc"></p>
           </div>
           <span class="spacer"></span>
           <span class="badge badge--neutral" id="ropRoleMembers" aria-live="polite"></span>
-          <button type="button" class="btn btn--ghost btn--sm" id="ropEdit" aria-disabled="true" aria-describedby="ropEditWhy"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3 17.2V21h3.8l11-11.1-3.7-3.7L3 17.2zM20.7 7c.4-.4.4-1 0-1.4l-2.3-2.3c-.4-.4-1-.4-1.4 0l-1.8 1.8 3.7 3.7L20.7 7z"/></svg><span>Edit permissions</span></button>
-          <span class="rop-sr-only" id="ropEditWhy">Not available: permissions cannot be edited until the server enforces them.</span>
+          <div class="rop-role-actions" id="ropRoleActions"></div>
         </div>
         <div class="card__body">
-          <ul class="stf-rolenotes" id="ropRoleNotes" aria-label="Key rules for this role"></ul>
+          <ul class="stf-rolenotes" id="ropRoleNotes" aria-label="Key facts about this role"></ul>
           <div class="table-wrap">
             <table class="table stf-matrix rop-matrix" id="ropMatrix" aria-busy="true" aria-describedby="ropCount">
-              <caption class="rop-sr-only">What the selected role can do in each part of the app</caption>
+              <caption class="rop-sr-only">What the selected role may do in each part of the system</caption>
               <thead>
-                <tr><th scope="col">Area</th><th scope="col">View</th><th scope="col">Create</th><th scope="col">Edit</th><th scope="col">Delete</th><th scope="col">Other actions</th><th scope="col">Who can use it</th></tr>
+                <tr><th scope="col">Module</th><th scope="col">View</th><th scope="col">Create</th><th scope="col">Edit</th><th scope="col">Delete</th><th scope="col">Approve</th><th scope="col">Manage</th><th scope="col">Export</th></tr>
               </thead>
               <tbody id="ropBody"></tbody>
             </table>
           </div>
-          <p class="stf-muted stf-matrix__key"><span class="stf-perm__mark is-yes" aria-hidden="true"></span> allowed &nbsp; <span class="stf-perm__mark is-no" aria-hidden="true"></span> the app has no such action &nbsp;&middot;&nbsp; <span id="ropCount" aria-live="polite"></span></p>
+          <p class="stf-muted stf-matrix__key"><span class="stf-perm__mark is-yes" aria-hidden="true"></span> allowed &nbsp; <span class="stf-perm__mark is-no" aria-hidden="true"></span> not allowed &nbsp; <span class="rop-na" aria-hidden="true">&middot;</span> the module has no such action &nbsp;&middot;&nbsp; <span id="ropCount" aria-live="polite"></span></p>
+          <div class="rop-holders" id="ropHolders"></div>
         </div>
       </section>
     </div>
+
+    <section class="card rop-assign" id="ropAssignCard" aria-labelledby="ropAssignTitle" hidden>
+      <div class="card__head">
+        <span class="stf-card-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></span>
+        <h2 id="ropAssignTitle">User role assignment</h2>
+      </div>
+      <div class="card__body">
+        <p class="stf-muted rop-assign__hint">Change which role a user account has. The change applies from that person's next action; nobody can change their own role, and only roles you may give are offered.</p>
+        <div class="rop-toolbar">
+          <label class="rop-search">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            <input type="search" class="input" id="ropUserSearch" placeholder="Search name or username&#8230;" aria-label="Search user accounts" autocomplete="off" maxlength="100">
+          </label>
+          <select class="select" id="ropUserRole" aria-label="Filter by role"><option value="">All roles</option></select>
+        </div>
+        <div class="table-wrap">
+          <table class="table rop-users" aria-describedby="ropUserCount">
+            <thead><tr><th scope="col">Staff member</th><th scope="col">Username</th><th scope="col">Status</th><th scope="col">Role</th><th scope="col"><span class="rop-sr-only">Save</span></th></tr></thead>
+            <tbody id="ropUsers"></tbody>
+          </table>
+        </div>
+        <p class="stf-muted" id="ropUserCount" aria-live="polite"></p>
+      </div>
+    </section>
 
   </div>
 

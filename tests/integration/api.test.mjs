@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 144 routes', routes.length === 144, routes);
+  t('advertises 149 routes', routes.length === 149, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('59 GET, 53 POST, 21 PUT, 11 DELETE',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 59, POST: 53, PUT: 21, DELETE: 11 }), byMethod);
+    t('61 GET, 54 POST, 22 PUT, 12 DELETE',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 61, POST: 54, PUT: 22, DELETE: 12 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));
@@ -5569,17 +5569,17 @@ sec('29. User accounts (0009): sign-in for a staff member, against the real Work
   };
 
   // 29a. create, for an existing active staff member
-  const made = await send('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'It.Mechanic', role: 'Administrator', password: PW });
+  const made = await send('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'It.Mechanic', role: 'Super Admin', password: PW });
   const A = made.body?.data?.id;
   t('29a create -> 201 with a USR id, the username in lower case, linked to the mechanic by its MEC id',
     made.status === 201 && /^USR-\d+$/.test(A ?? '') && made.body?.data?.username === 'it.mechanic' && made.body?.data?.staffId === 'MEC-9001', made.body);
   t('   ...the response carries no password, hash or session value', !SECRET_RE.test(JSON.stringify(made.body)) && !JSON.stringify(made.body).includes(PW), made.body);
-  const again = await send('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'it.other', role: 'Administrator', password: PW });
+  const again = await send('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'it.other', role: 'Super Admin', password: PW });
   t('   ...a second account for the same person -> 409 naming the first', again.status === 409 && again.body?.error?.conflictsWith === A, again.body);
-  const forged = await send('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'it.forged', role: 'Administrator', password: PW, id: 'USR-0999', status: 'Inactive', passwordHash: 'x' });
+  const forged = await send('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'it.forged', role: 'Super Admin', password: PW, id: 'USR-0999', status: 'Inactive', passwordHash: 'x' });
   t('   ...unsupported properties (id, status, a hash) -> 422 naming each', forged.status === 422 && ['id', 'passwordHash', 'status'].every((k) => k in (forged.body?.error?.fields ?? {})), forged.body);
-  const role = await send('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'it.role', role: 'Mechanic', password: PW });
-  t('   ...a role the Worker cannot enforce -> 422', role.status === 422 && 'role' in (role.body?.error?.fields ?? {}), role.body);
+  const role = await send('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'it.role', role: 'Owner', password: PW });
+  t('   ...a role that does not exist -> 422', role.status === 422 && 'role' in (role.body?.error?.fields ?? {}), role.body);
 
   // 29b. sign in with it
   const s1 = await login({ username: 'IT.MECHANIC', password: PW });
@@ -5589,9 +5589,9 @@ sec('29. User accounts (0009): sign-in for a staff member, against the real Work
   t('   ...the gate accepts it for business data', read.status === 200, read.status);
   const me = await as('GET', '/api/session', s1.cookie);
   t('   ...GET /api/session names the account (id, username, role only)',
-    me.body?.data?.account?.id === A && me.body?.data?.account?.username === 'it.mechanic' && Object.keys(me.body?.data?.account ?? {}).sort().join() === 'id,role,username', me.body);
+    me.body?.data?.account?.id === A && me.body?.data?.account?.username === 'it.mechanic' && Object.keys(me.body?.data?.account ?? {}).sort().join() === 'id,role,roleId,username', me.body);
   const list = await as('GET', '/api/accounts', s1.cookie);
-  t('   ...an Administrator account may list accounts; its own row is marked, nothing secret',
+  t('   ...a Super Admin account may list accounts; its own row is marked, nothing secret',
     list.status === 200 && list.body?.data?.some((a) => a.id === A && a.self === true) && !SECRET_RE.test(JSON.stringify(list.body)), list.body);
   const wrong = await login({ username: 'it.mechanic', password: 'Wrong-Password-9' });
   const nobody = await login({ username: 'it.nobody', password: PW });
@@ -5615,7 +5615,7 @@ sec('29. User accounts (0009): sign-in for a staff member, against the real Work
 
   // 29d. the gate, and the people the account belongs to
   const anonList = await sendAnon('GET', '/api/accounts');
-  const anonMake = await sendAnon('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'x.y', role: 'Administrator', password: PW });
+  const anonMake = await sendAnon('POST', '/api/accounts', { staffId: 'MEC-9001', username: 'x.y', role: 'Super Admin', password: PW });
   t('29d without credentials every account route is 401', anonList.status === 401 && anonMake.status === 401, [anonList.status, anonMake.status]);
   const mech = await get('/api/mechanics/MEC-9001');
   t('   ...the mechanic is unchanged: same id, pay and name', mech.status === 200 && mech.body?.data?.salary === 32000 && mech.body?.data?.name === 'B5 Full Mechanic', mech.body);
@@ -5680,6 +5680,54 @@ sec('31. Notifications (0017): raised by real events in the Workers runtime, aga
   const anon = await sendAnon('GET', '/api/notifications');
   t('31f without credentials -> 401', anon.status === 401, anon.status);
   // cleanup.sql removes the notifications and read markers with the other fixture rows.
+}
+
+sec('32. Roles & Permissions (0018): enforced by the real Worker, against real D1');
+{
+  const PW = 'Integration-Pass-3';
+  const as = async (method, path, cookie, body) => {
+    const res = await fetch(BASE + path, { method, headers: { cookie, ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    let parsed = null; try { parsed = await res.json(); } catch { parsed = null; }
+    return { status: res.status, body: parsed };
+  };
+  const signIn = async (username) => {
+    const res = await fetch(BASE + '/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password: PW }) });
+    return (res.headers.get('set-cookie') || '').split(';')[0];
+  };
+  const roles = await get('/api/roles');
+  t('32a the eight built-in roles exist, Super Admin first and protected', roles.status === 200 && roles.body?.data?.length >= 8
+    && roles.body.data[0].name === 'Super Admin' && roles.body.data[0].system === true && Array.isArray(roles.body?.catalog), roles.body?.data?.map((r) => r.name));
+  const made = await send('POST', '/api/accounts', { staffId: 'MEC-9002', username: 'it.rbac', role: 'Mechanic', password: PW });
+  t('32b an account with the Mechanic role -> 201', made.status === 201 && made.body?.data?.role === 'Mechanic' && made.body?.data?.roleId === 'ROL-0007', made.body);
+  const mech = await signIn('it.rbac');
+  const can = await as('GET', '/api/job-cards', mech);
+  const cannot = await Promise.all(['/api/invoices', '/api/payments', '/api/expenses', '/api/roles', '/api/accounts'].map((p) => as('GET', p, mech)));
+  t('   ...may read job cards (200), but invoices, payments, expenses, roles and accounts are 403', can.status === 200 && cannot.every((r) => r.status === 403),
+    [can.status, ...cannot.map((r) => r.status)]);
+  const write = await as('POST', '/api/customers', mech, { name: 'RBAC should not exist', phone: '01700009032' });
+  t('   ...a write it was not given is 403 and saves nothing', write.status === 403
+    && !((await get('/api/customers?limit=1000')).body?.data ?? []).some((c) => c.name === 'RBAC should not exist'), write.status);
+  const me = await as('GET', '/api/session', mech);
+  t('   ...GET /api/session reports its role and permissions (display only)', me.body?.data?.account?.role === 'Mechanic' && me.body?.data?.fullAccess === false
+    && me.body?.data?.permissions?.includes('job_cards.manage') && !me.body?.data?.permissions?.includes('invoices.view'), me.body?.data);
+
+  const custom = await send('POST', '/api/roles', { name: 'IT Front Desk', description: 'Integration test role', permissions: ['customers.view', 'customers.create'] });
+  t('32c create a role -> 201 with a ROL id after the built-in ones', custom.status === 201 && custom.body?.data?.id > 'ROL-0008', custom.body);
+  const R = custom.body?.data;
+  const moved = await send('PUT', `/api/accounts/${made.body?.data?.id}`, { roleId: R?.id });
+  t('   ...give it to the account -> 200; the old session is signed out (401)', moved.status === 200 && (await as('GET', '/api/customers', mech)).status === 401, moved.body);
+  const desk = await signIn('it.rbac');
+  const make = await as('POST', '/api/customers', desk, { name: 'RBAC Desk Customer', phone: '01700009033' });
+  t('   ...signed in again it may now add customers (201) but still not read job cards (403)', make.status === 201 && (await as('GET', '/api/job-cards', desk)).status === 403, make.status);
+  const off = await send('PUT', `/api/roles/${R?.id}`, { expectedUpdatedAt: R?.updatedAt, status: 'Inactive' });
+  t('32d a role an account holds cannot be switched off (409)', off.status === 409 && off.body?.error?.reason === 'role_in_use', off.body);
+  const sa = roles.body?.data?.[0];
+  t('   ...Super Admin cannot be changed or deleted, even with the machine token (403)',
+    (await send('PUT', `/api/roles/${sa?.id}`, { expectedUpdatedAt: sa?.updatedAt, name: 'Owner' })).status === 403 && (await send('DELETE', `/api/roles/${sa?.id}`)).status === 403);
+  t('32e escalation: the desk role cannot read roles, assign itself a role, or create a role', [
+    (await as('GET', '/api/roles', desk)).status, (await as('PUT', `/api/accounts/${made.body?.data?.id}`, desk, { roleId: 'ROL-0001' })).status,
+    (await as('POST', '/api/roles', desk, { name: 'Mine', permissions: ['customers.view'] })).status].every((x) => x === 403));
+  // cleanup.sql removes the account, the customer and the test role, and restores the counters.
 }
 
 console.log(`\nAPI integration: ${pass} passed, ${fail} failed`);

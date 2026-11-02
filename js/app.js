@@ -719,6 +719,74 @@ const App = (() => {
               + 'Anything you enter will not reach the shared database.', 'warning');
   }
 
+  /* ---------- Roles & Permissions (0018): what this role may open ----------
+     Every page and the permission it needs to be opened. The server checks
+     every request itself (src/lib/permissions.js), so a page opened anyway
+     would load nothing; this keeps the sidebar to what works and puts a plain
+     "no access" in place of a page opened by its address. A page missing here
+     needs nothing beyond being signed in (Profile, Account Settings). */
+  const PAGE_PERMISSIONS = {
+    dashboard: 'dashboard.view', customers: 'customers.view', vehicles: 'vehicles.view', appointments: 'appointments.view',
+    'job-cards': 'job_cards.view', estimates: 'estimates.view', 'estimate-create': 'estimates.create', 'estimate-details': 'estimates.view',
+    services: 'services.view', mechanics: 'mechanics.view', inventory: 'inventory.view', invoices: 'invoices.view',
+    payments: 'payments.view', expenses: 'expenses.view', reports: 'reports.view', settings: 'settings.view',
+    'crm-reminders': 'crm.view', 'crm-follow-up': 'crm.view', 'crm-history': 'crm.view', 'crm-tasks': 'crm.view', 'crm-reports': 'crm.view',
+    'staff-management': 'staff.view', 'staff-list': 'staff.view', 'staff-add': 'staff.create', 'staff-performance': 'staff.view',
+    'staff-accounts': 'users.view', 'staff-roles': 'roles.view', 'staff-attendance': 'attendance.view', 'staff-leave': 'leave.view',
+    'staff-activity-log': 'activity_log.view',
+    'inbox-conversations': 'inbox.view', 'inbox-facebook': 'inbox.view', 'inbox-whatsapp': 'inbox.view', 'inbox-website-forms': 'inbox.view',
+    'workshop-tools': 'tools.view', 'equipment-inventory': 'tools.view', 'maintenance-repairs': 'tools.view',
+    'asset-assignment': 'tools.view', 'asset-history': 'tools.view', 'asset-reports': 'tools.view',
+    notifications: 'notifications.view',
+  };
+  /** The page key behind a sidebar link: 'pages/invoices.html' -> 'invoices', 'index.html' -> 'dashboard'. */
+  const pageOfHref = href => {
+    const m = /(?:^|\/)([a-z0-9-]+)\.html(?:[?#].*)?$/.exec(String(href || ''));
+    return m ? (m[1] === 'index' ? 'dashboard' : m[1]) : null;
+  };
+  /** May the signed-in role open this page? (Always, when no role is known: nothing can be read then.) */
+  const mayOpen = key => !PAGE_PERMISSIONS[key] || Storage.can(PAGE_PERMISSIONS[key]);
+
+  /**
+   * Hide the sidebar entries this role cannot open (a group with none left
+   * goes too), and stand in for this page if it is one of them.
+   */
+  function applyAccess() {
+    if (!Storage.isApi()) return;
+    const page = document.body.dataset.page || 'dashboard';
+    const root = document.body.dataset.root || '';
+    document.querySelectorAll('.sidebar a[href]').forEach(a => {
+      const key = pageOfHref(a.getAttribute('href'));
+      if (key && !mayOpen(key)) a.remove();
+    });
+    document.querySelectorAll('.sidebar details').forEach(group => {
+      if (!group.querySelector('a[href]')) group.remove();
+    });
+    // A control a page marks with the permission it needs (data-requires) is
+    // hidden and disabled for a role without it -- kept in the page, so the
+    // page's own code can still find it. The server refuses the action anyway.
+    document.querySelectorAll('[data-requires]').forEach(el => {
+      if (Storage.can(el.dataset.requires)) return;
+      el.hidden = true;
+      el.style.display = 'none';
+      if ('disabled' in el) el.disabled = true;
+      el.setAttribute('aria-hidden', 'true');
+      el.setAttribute('tabindex', '-1');
+    });
+    if (mayOpen(page)) return;
+    Storage.blockPage();
+    const content = document.getElementById('page-content');
+    if (content) {
+      content.innerHTML = `
+        <section class="card access-denied" role="alert">
+          <h2>You do not have access to this page</h2>
+          <p>Your role${Storage.account && Storage.account.role ? ` (${Utils.esc(Storage.account.role)})` : ''} does not include this part of the workshop system.
+             If you need it, ask an administrator to change your role.</p>
+          <a class="btn btn--primary btn--sm" href="${root}index.html">Go to the dashboard</a>
+        </section>`;
+    }
+  }
+
   function init(hydration) {
     applyTheme(Storage.getTheme());
     // Live-follow OS theme changes only while the user has chosen "System".
@@ -742,8 +810,9 @@ const App = (() => {
     // this session is not reaching the database is the thing that still has
     // to get through.
     warnIfBackendExpected(hydration);
-    if (earlyShell) completeShell();
-    else { renderShell(); rememberSource(); }
+    // Before the content is revealed, so a page this role may not open never shows.
+    if (earlyShell) { applyAccess(); completeShell(); }
+    else { renderShell(); applyAccess(); rememberSource(); }
   }
 
   /**

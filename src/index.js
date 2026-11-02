@@ -10,7 +10,9 @@
    ============================================================ */
 
 import { ok, fail, notFound, methodNotAllowed, noDatabase, SECURITY_HEADERS } from './lib/http.js';
-import { checkAuth } from './lib/auth.js';
+import { checkAuth, principalOf } from './lib/auth.js';
+// Roles & Permissions (0018): what each route needs, and whether the caller has it.
+import { can, collectionPermission, routePermission } from './lib/permissions.js';
 import { session } from './routes/session.js';
 import {
   listCustomers, getCustomer, createCustomer, updateCustomer, deleteCustomer,
@@ -122,6 +124,8 @@ import { listActivity, getActivity } from './routes/activity-log.js';
 // Workshop Assets › Tools & Equipment (0013). No remove: a tool is retired
 // (an administrator's action), never deleted.
 import { listTools, getTool, createTool, updateTool, retireTool } from './routes/tools.js';
+// Roles & Permissions (0018).
+import { listRoles, getRole, createRole, updateRole, deleteRole } from './routes/roles.js';
 import { withActivity } from './lib/activity.js';
 // Social Inbox › Facebook Messenger (0014). The webhook is public and carries
 // Meta's own verification; the inbox routes are behind the gate like any read.
@@ -273,6 +277,10 @@ const COLLECTIONS = {
     list: listTools, detail: getTool,
     create: createTool, update: updateTool,
     actions: { retire: retireTool },
+  },
+  roles: {
+    list: listRoles, detail: getRole,
+    create: createRole, update: updateRole, remove: deleteRole,
   },
 };
 
@@ -434,8 +442,17 @@ export default {
     const run = async (handler, ...args) => {
       const denied = await checkAuth(request, env);
       if (denied) return denied;
+      // Authorization, after authentication and before the handler: the
+      // permission this request needs (lib/permissions.js), checked against
+      // the caller's role as the gate read it from the database. A route the
+      // permission table does not know needs full access -- fail closed.
+      if (!can(principalOf(request), need)) {
+        return fail('forbidden', 'Your role does not allow this.', 403);
+      }
       return handler(request, env, ...args);
     };
+    // Set by each dispatch below, before run() is called.
+    let need = routePermission(request.method, url.pathname);
 
     // The Worker now shares its origin with the static app (see the assets
     // binding in wrangler.jsonc). Asset paths are served before this runs;
@@ -512,7 +529,9 @@ export default {
       if (collection) {
         // No trailing segment at all -> the list path.
         if (rawId === undefined) {
+          need = collectionPermission(name, 'view');
           if (request.method === 'GET') return run(collection.list, url);
+          need = collectionPermission(name, 'create');
           if (request.method === 'POST' && collection.create) {
             return withNotification(request, env, ctx, name, 'create',
               () => withActivity(request, env, name, 'create', () => run(collection.create)));
@@ -538,12 +557,15 @@ export default {
           const action = collection.actions?.[actionName];
           if (action) {
             if (request.method !== 'POST') return methodNotAllowed(['POST']);
+            need = collectionPermission(name, actionName);
             return withNotification(request, env, ctx, name, actionName,
               () => withActivity(request, env, name, actionName, () => run(action, id.slice(0, slash))));
           }
         }
 
+        need = collectionPermission(name, 'view');
         if (request.method === 'GET') return run(collection.detail, id);
+        need = collectionPermission(name, request.method === 'PUT' ? 'update' : 'remove');
         if (request.method === 'PUT' && collection.update) {
           return withNotification(request, env, ctx, name, 'update',
             () => withActivity(request, env, name, 'update', () => run(collection.update, id)));

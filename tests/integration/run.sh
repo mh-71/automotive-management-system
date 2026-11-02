@@ -96,7 +96,7 @@ cleanup() {
     # it advanced is invisible to the check above. A non-zero total means a
     # test allocated an id and did not restore it.
     local counters
-    counters=$(d1 "SELECT sum(last_value) AS n FROM id_counters" \
+    counters=$(d1 "SELECT sum(last_value) - 8 AS n FROM id_counters" \
            | grep -oE '"n": *[0-9]+' | grep -oE '[0-9]+')
     if [ "${counters:-0}" != "0" ]; then
       echo "  WARNING: id_counters total is ${counters:-?}, expected 0 — a test allocated ids without restoring them" >&2
@@ -204,7 +204,9 @@ COUNTS=$(d1 "SELECT (SELECT count(*) FROM services) + (SELECT count(*) FROM cust
                     + (SELECT count(*) FROM attendance)
                     + (SELECT count(*) FROM notifications) + (SELECT count(*) FROM notification_reads)
                     + (SELECT count(*) FROM settings)
-                    + (SELECT sum(last_value) FROM id_counters) AS n" \
+                    + (SELECT count(*) FROM roles WHERE id > 'ROL-0008')
+                    + (SELECT sum(last_value) FROM id_counters WHERE collection <> 'roles')
+                    + (SELECT abs(last_value - 8) FROM id_counters WHERE collection = 'roles') AS n" \
          | grep -oE '"n": *[0-9]+' | grep -oE '[0-9]+')
 if [ "${COUNTS:-x}" != "0" ]; then
   cat >&2 <<MSG

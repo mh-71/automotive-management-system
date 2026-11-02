@@ -106,4 +106,9 @@ DELETE FROM settings WHERE id = 1;
 -- reset here. This is safe only because run.sh refuses to start unless every
 -- counter is already 0 -- so this restores the state the run found, and can
 -- never rewind a real shop's sequence.
-UPDATE id_counters SET last_value = 0;
+-- 0018: the roles counter is the exception -- it starts at 8, after the
+-- built-in roles, which are never removed. Roles the suite created go
+-- (their permissions with them); the counter goes back to where it was.
+DELETE FROM roles WHERE id > 'ROL-0008';
+UPDATE id_counters SET last_value = 0 WHERE collection <> 'roles';
+UPDATE id_counters SET last_value = 8 WHERE collection = 'roles';

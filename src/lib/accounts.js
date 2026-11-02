@@ -5,15 +5,16 @@
    POST /api/session (signing in with a username and password) and by
    the /api/accounts routes (managing accounts).
 
-   Roles: nothing in the API restricts what a signed-in caller may do,
-   so the only role that can honestly be granted is full access --
-   'Administrator'. Adding roles here without enforcing them would
-   claim a restriction that does not exist (see migration 0009).
+   Roles (0018): an account's role is user_accounts.role_id, and its
+   permissions are that role's rows in role_permissions. Both are read
+   here, from the database, every time the gate checks a session -- a
+   change of role or of a role's permissions applies on the next
+   request. An account with no role, or an inactive one, has no
+   permissions at all (lib/permissions.js).
    ============================================================ */
 
 import { hashPassword, verifyPassword, DECOY_HASH } from './passwords.js';
 
-export const ACCOUNT_ROLES = ['Administrator'];
 export const ACCOUNT_STATUSES = ['Active', 'Inactive'];
 export const USERNAME = /^[a-z0-9._-]{3,32}$/;
 export const ACCOUNT_ID = /^USR-\d{4,}$/;
@@ -46,11 +47,28 @@ export { hashPassword };
 // The person behind an account: a mechanic or another employee, and whether they are still active.
 const PERSON_SQL = `
   SELECT a.id, a.username, a.role, a.status, a.session_version, a.password_hash, a.failed_logins, a.locked_until,
+         a.role_id, r.name AS role_name, r.status AS role_status, r.full_access AS role_full_access,
          COALESCE(m.name, s.name) AS person_name,
          COALESCE(m.status, s.status) AS person_status
     FROM user_accounts a
+    LEFT JOIN roles r ON r.id = a.role_id
     LEFT JOIN mechanics m ON m.id = a.mechanic_id
     LEFT JOIN staff s ON s.id = a.staff_id`;
+
+/**
+ * What an account may do, from its role row: full access for the system role,
+ * the role's permission rows otherwise, nothing for a missing or inactive role.
+ */
+export async function roleGrant(env, row) {
+  const active = !!row.role_id && row.role_status === 'Active';
+  const fullAccess = active && Number(row.role_full_access) === 1;
+  let permissions = new Set();
+  if (active && !fullAccess) {
+    const { results } = await env.DB.prepare('SELECT permission FROM role_permissions WHERE role_id = ?1').bind(row.role_id).all();
+    permissions = new Set((results || []).map((p) => p.permission));
+  }
+  return { roleId: row.role_id || null, role: row.role_name || null, roleActive: active, fullAccess, permissions };
+}
 
 /**
  * The account behind a signed account session, if it may still be used:
@@ -64,7 +82,7 @@ export async function loadSessionAccount(env, accountId, sessionVersion) {
     const row = await env.DB.prepare(`${PERSON_SQL} WHERE a.id = ?1`).bind(accountId).first();
     if (!row || row.status !== 'Active' || row.person_status !== 'Active') return null;
     if (Number(row.session_version) !== Number(sessionVersion)) return null;
-    return { kind: 'account', id: row.id, username: row.username, role: row.role, name: row.person_name };
+    return { kind: 'account', id: row.id, username: row.username, name: row.person_name, ...(await roleGrant(env, row)) };
   } catch (err) {
     console.error('Account session check failed:', err && err.message);
     return null;

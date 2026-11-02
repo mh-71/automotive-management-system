@@ -32,8 +32,9 @@ const STATUSES = ['all', 'unread', 'read'];
 const Q_MAX = 100;
 const ID = /^[1-9]\d{0,14}$/;
 
-// ?1 = reader, ?2 = the caller's account id (or NULL).
-const VISIBLE = `(n.recipient_account_id IS NULL OR n.recipient_account_id = ?2)`;
+// ?1 = reader, ?2 = the caller's account id (or NULL). What the caller may
+// see is who.visible (lib/notifications.js visibleSql): their own personal
+// notifications, and shared ones about records their role may view.
 const FROM = `FROM notifications n
   LEFT JOIN notification_reads r ON r.notification_id = n.id AND r.reader = ?1`;
 
@@ -64,7 +65,7 @@ async function counts(env, who) {
             coalesce(sum(CASE WHEN r.notification_id IS NULL THEN 1 ELSE 0 END), 0) AS unread,
             coalesce(sum(CASE WHEN r.notification_id IS NULL AND n.priority = 'important' THEN 1 ELSE 0 END), 0) AS important,
             coalesce(max(n.id), 0) AS latest_id
-       ${FROM} WHERE ${VISIBLE}`
+       ${FROM} WHERE ${who.visible}`
   ).bind(who.reader, who.accountId).first();
   return { total: row.total, unread: row.unread, important: row.important, latestId: row.latest_id };
 }
@@ -99,7 +100,7 @@ async function list(env, who, url) {
 
   await sweep(env, refresh === '1');
 
-  const where = `WHERE ${VISIBLE}
+  const where = `WHERE ${who.visible}
       AND (?3 = 'all' OR (?3 = 'unread' AND r.notification_id IS NULL) OR (?3 = 'read' AND r.notification_id IS NOT NULL))
       AND (?4 IS NULL OR n.category = ?4)
       AND (?5 IS NULL OR lower(n.title) LIKE ?5 ESCAPE '\\' OR lower(n.message) LIKE ?5 ESCAPE '\\'
@@ -132,7 +133,7 @@ async function unreadCount(env, who) {
 }
 
 async function findVisible(env, who, id) {
-  return env.DB.prepare(`SELECT ${COLUMNS} ${FROM} WHERE n.id = ?3 AND ${VISIBLE}`)
+  return env.DB.prepare(`SELECT ${COLUMNS} ${FROM} WHERE n.id = ?3 AND ${who.visible}`)
     .bind(who.reader, who.accountId, id).first();
 }
 
@@ -179,7 +180,7 @@ async function readAll(request, env, who) {
     const res = await env.DB.prepare(
       `INSERT OR IGNORE INTO notification_reads (notification_id, reader, read_at)
        SELECT n.id, ?1, ?3 ${FROM}
-        WHERE ${VISIBLE} AND r.notification_id IS NULL AND (?4 IS NULL OR n.id <= ?4)`
+        WHERE ${who.visible} AND r.notification_id IS NULL AND (?4 IS NULL OR n.id <= ?4)`
     ).bind(who.reader, who.accountId, nowIso(), upToId).run();
     return ok({ marked: (res.meta && res.meta.changes) || 0 }, { summary: await counts(env, who) });
   } catch (err) {

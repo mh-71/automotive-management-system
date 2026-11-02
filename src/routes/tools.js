@@ -37,7 +37,7 @@ import {
 } from '../lib/write.js';
 import { fieldSet } from '../lib/collection-write.js';
 import { principalOf } from '../lib/auth.js';
-import { isAdmin } from './accounts.js';
+import { can } from '../lib/permissions.js';
 
 export const TOOL_CATEGORIES = [
   'Diagnostic Equipment', 'Engine Tools', 'Electrical Tools', 'AC Service Equipment',
@@ -416,8 +416,8 @@ export async function updateTool(request, env, rawId) {
 export async function retireTool(request, env, rawId) {
   if (request.method !== 'POST') return methodNotAllowed(['POST']);
   if (!env.DB) return noDatabase();
-  if (!isAdmin(principalOf(request))) {
-    return fail('forbidden', 'Only an administrator can retire a tool.', 403);
+  if (!can(principalOf(request), 'tools.manage')) {
+    return fail('forbidden', 'Your role cannot retire tools.', 403);
   }
   const id = readId(rawId);
   if (!id) return fail('invalid_id', 'That is not a tool id.', 400);

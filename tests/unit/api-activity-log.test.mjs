@@ -54,7 +54,7 @@ const AT = '2026-10-08T00:00:00Z';
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
   '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0010_attendance.sql',
-  '0011_leave_requests.sql', '0012_activity_log.sql'];
+  '0011_leave_requests.sql', '0012_activity_log.sql', '0018_roles_permissions.sql'];
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -183,10 +183,10 @@ console.log('\n-- B. reading --');
   check('   ...and nothing was written by trying', count(h), 0);
   const owner = await h.passphraseCookie();
   check('the passphrase session and the machine token may read', [(await h.api('GET', PATH, undefined, owner)).status, (await h.api('GET', PATH)).status], [200, 200]);
-  await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Administrator', password: PW }, owner);
+  await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Super Admin', password: PW }, owner);
   const admin = (await h.api('POST', '/api/session', { username: 'nadia', password: PW }, 'none')).cookie;
   check('an Administrator account may read', (await h.api('GET', PATH, undefined, admin)).status, 200);
-  h.DB.raw.exec("UPDATE user_accounts SET role = 'Viewer' WHERE username = 'nadia'");
+  h.DB.raw.exec("UPDATE user_accounts SET role_id = 'ROL-0008' WHERE username = 'nadia'");
   const viewer = await h.api('GET', PATH, undefined, admin);
   check('an account with any other role may not: 403', [viewer.status, viewer.body?.error?.code, (await h.api('GET', `${PATH}/1`, undefined, admin)).status], [403, 'forbidden', 403]);
 }
@@ -206,17 +206,17 @@ console.log('\n-- C. recording --');
   e = entries(h);
   check('editing staff: one more entry naming the fields sent (not their values)',
     [ed.status, e.length, e[1]?.action, e[1]?.summary], [200, 2, 'update', `Updated Rumana Begum (${sid}): phone, department`]);
-  const acct = await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Administrator', password: PW }, owner);
+  const acct = await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Super Admin', password: PW }, owner);
   const uid = acct.body?.data?.id;
   const pw = await h.api('POST', `/api/accounts/${uid}/password`, { password: 'Another-Password-9' }, owner);
-  const au = await h.api('PUT', '/api/accounts/' + uid, { role: 'Administrator' }, owner);
+  const au = await h.api('PUT', '/api/accounts/' + uid, { role: 'Super Admin' }, owner);
   e = entries(h);
   check('creating an account, setting its password and editing it: three entries',
     [acct.status, pw.status, au.status, e.slice(2).map((x) => [x.module, x.action, x.record_id])],
     [201, 200, 200, [['accounts', 'create', uid], ['accounts', 'password', uid], ['accounts', 'update', uid]]]);
   check('   ...with readable summaries', e.slice(2).map((x) => x.summary),
-    [`Created account nadia for Nadia Akter (STF-0001), role Administrator`, 'Set a new password for account nadia',
-      'Updated account nadia for Nadia Akter (STF-0001): role (now Active, Administrator)']);
+    [`Created account nadia for Nadia Akter (STF-0001), role Super Admin`, 'Set a new password for account nadia',
+      'Updated account nadia for Nadia Akter (STF-0001): role (now Active, Super Admin)']);
 
   // Now as the account itself: the entry names the signed-in account, not the passphrase.
   const nadia = (await h.api('POST', '/api/session', { username: 'nadia', password: 'Another-Password-9' }, 'none')).cookie;
@@ -260,7 +260,7 @@ console.log('\n-- E. only on success --');
     await h.api('POST', '/api/staff', STAFF(), 'none'),                                           // 401
     await h.api('POST', '/api/staff', STAFF({ name: '' }), owner),                               // 422
     await h.api('PUT', '/api/staff/STF-0099', { department: 'X' }, owner),                       // 404
-    await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'n', role: 'Administrator', password: 'short' }, owner),   // 422
+    await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'n', role: 'Super Admin', password: 'short' }, owner),   // 422
   ];
   await h.api('POST', '/api/attendance', { staffId: 'MEC-0001', date: D(-1), status: 'Present' }, owner);
   refused.push(await h.api('POST', '/api/attendance', { staffId: 'MEC-0001', date: D(-1), status: 'Absent' }, owner));   // 409 duplicate day
@@ -327,8 +327,8 @@ console.log('\n-- G. compatibility --');
   const mec = await h.api('PUT', '/api/mechanics/MEC-0002', { name: 'Kamal Hossain', phone: '01800000002' });
   check('changes outside the logged Staff Management writes are not logged (customers, mechanics)', [cus.status, mec.status, count(h)], [201, 200, 0]);
   const routes = (await h.api('GET', '/api/health')).body?.data?.routes ?? [];
-  check('the registry is 144 routes: the 111 before, the two read routes, the five tools routes of 0013 and the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 and the five Notifications routes of 0017',
-    [routes.length, routes.filter((r) => r.includes('/api/activity-log'))], [144, ['GET /api/activity-log', 'GET /api/activity-log/:id']]);
+  check('the registry is 149 routes: the 111 before, the two read routes, the five tools routes of 0013 and the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 the five Notifications routes of 0017 and the five Roles routes of 0018',
+    [routes.length, routes.filter((r) => r.includes('/api/activity-log'))], [149, ['GET /api/activity-log', 'GET /api/activity-log/:id']]);
 }
 
 console.log(`\nActivity log unit: ${pass} passed, ${fail} failed`);
