@@ -1048,6 +1048,12 @@ async function activePaymentsOn(env, jobCardId) {
   return results ?? [];
 }
 
+/** Refusal for an edit made from an older copy of the job card (expectedUpdatedAt). */
+function staleEditConflict(current) {
+  return conflict('This job card was changed by someone else since it was read. Nothing was saved; read it again and retry.',
+    { reason: 'stale_edit', ...(current ? { updatedAt: current } : {}) });
+}
+
 /** Refusal for a customer change on a job card that holds payments. */
 function customerLockedConflict(held) {
   const ids = held.map((p) => p.id);
@@ -1309,6 +1315,16 @@ export async function updateJobCard(request, env, rawId) {
   const stored = await loadJobCard(env, id.value);
   if (!stored) return fail('not_found', 'No job card with that id.', 404);
 
+  // Optional, and only when sent (offline sync sends it, 0020): the edit was
+  // made from the record as it was at `expectedUpdatedAt`. If anyone saved it
+  // since, nothing is written -- so a parts movement merged into the lines it
+  // read can never overwrite a change made in between. Checked here, and again
+  // inside the write itself (the guard statement below), so there is no gap.
+  const expected = b.expectedUpdatedAt === undefined ? undefined : (b.expectedUpdatedAt || null);
+  if (expected !== undefined && (stored.row.updated_at || null) !== expected) {
+    return staleEditConflict(stored.row.updated_at);
+  }
+
   // :860-863 — the edit form refuses to open on a terminal job card, so a
   // terminal one cannot be edited at all. This is the protection that keeps an
   // inventory-affecting change out of a finished record.
@@ -1485,6 +1501,14 @@ export async function updateJobCard(request, env, rawId) {
   const names = Object.keys(columns);
 
   const statements = [];
+  // The stale-edit guard, inside the write: if the row changed after the check
+  // above, this sets vehicle_id to NULL, the NOT NULL constraint refuses it and
+  // the WHOLE batch -- lines and stock included -- rolls back.
+  if (expected !== undefined) {
+    statements.push(env.DB.prepare(
+      'UPDATE job_cards SET vehicle_id = NULL WHERE id = ?1 AND updated_at IS NOT ?2'
+    ).bind(stored.row.id, expected));
+  }
   // A customer CHANGE is re-checked inside the write: if a payment was recorded
   // against this job card after the check above, this statement writes NULL
   // into customer_id, the NOT NULL constraint refuses it, and the whole batch
@@ -1546,6 +1570,9 @@ export async function updateJobCard(request, env, rawId) {
     if (inventory) return inventory;
     if (/NOT NULL constraint failed: job_cards\.customer_id/i.test(String((err && err.message) || err || ''))) {
       return customerLockedConflict(await activePaymentsOn(env, stored.row.id));
+    }
+    if (expected !== undefined && /NOT NULL constraint failed: job_cards\.vehicle_id/i.test(String((err && err.message) || err || ''))) {
+      return staleEditConflict(null);
     }
     const mapped = constraintFailure(err);
     if (mapped) return mapped;

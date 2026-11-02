@@ -33,6 +33,8 @@ const ALSO = {
   'inventory-transactions': ['parts'],
   appointments: ['jobCards'],
   estimates: ['jobCards'],
+  // A mechanic added or edited through Staff Management is a row in mechanics (0008).
+  staff: ['mechanics'],
 };
 
 export async function logChanges(env, entries) {

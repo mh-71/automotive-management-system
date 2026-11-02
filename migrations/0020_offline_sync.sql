@@ -106,7 +106,12 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
   account_id      TEXT NOT NULL,
   reason          TEXT NOT NULL,
   details         TEXT NOT NULL DEFAULT '{}',                 -- local values, server values, the server's answer (JSON)
-  status          TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Resolved')),
+  -- 'Resolving' is an administrator's atomic claim while a decision is applied
+  -- (two administrators can never apply the same conflict twice); a claim
+  -- older than two minutes may be taken over.
+  status          TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Resolving', 'Resolved')),
+  claimed_by      TEXT,
+  claimed_at      TEXT,
   resolution      TEXT,
   resolution_note TEXT,
   resolved_by     TEXT,
@@ -115,7 +120,8 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
   created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_sync_conflicts_status ON sync_conflicts (status, created_at);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_sync_conflicts_open_op ON sync_conflicts (op_id) WHERE status = 'Open';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sync_conflicts_open_op ON sync_conflicts (op_id) WHERE status IN ('Open', 'Resolving');
+CREATE INDEX IF NOT EXISTS ix_sync_conflicts_account ON sync_conflicts (account_id, status);
 
 CREATE TABLE IF NOT EXISTS sync_conflict_events (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,13 +136,16 @@ CREATE INDEX IF NOT EXISTS ix_sync_conflict_events ON sync_conflict_events (conf
 
 CREATE TABLE IF NOT EXISTS invoice_drafts (
   id              TEXT PRIMARY KEY,                           -- DRF-0001: never an invoice number
-  job_card_id     TEXT NOT NULL REFERENCES job_cards(id),
+  -- ON DELETE SET NULL: a draft never blocks deleting its job card or invoice
+  -- (existing delete rules stay exactly as they were); the draft is kept, as
+  -- history, with the link cleared.
+  job_card_id     TEXT REFERENCES job_cards(id) ON DELETE SET NULL,
   date            TEXT,
   notes           TEXT NOT NULL DEFAULT '' CHECK (length(notes) <= 1000),
   status          TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Finalized', 'Discarded')),
   local_total     REAL,                                       -- the total the device saw when it drafted
   local_snapshot  TEXT NOT NULL DEFAULT '{}',                 -- the lines it saw (JSON), for pricing review
-  invoice_id      TEXT REFERENCES invoices(id),               -- the real invoice, once finalized
+  invoice_id      TEXT REFERENCES invoices(id) ON DELETE SET NULL,  -- the real invoice, once finalized
   temp_ref        TEXT,
   op_id           TEXT UNIQUE,
   device_id       TEXT,
@@ -186,7 +195,6 @@ CREATE TABLE IF NOT EXISTS change_log (
   op          TEXT NOT NULL CHECK (op IN ('upsert', 'delete', 'refresh')),
   changed_at  TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_change_log_record ON change_log (collection, record_id);
 
 INSERT OR IGNORE INTO id_counters (collection, prefix, last_value) VALUES
   ('devices', 'DEV', 0),
@@ -194,7 +202,8 @@ INSERT OR IGNORE INTO id_counters (collection, prefix, last_value) VALUES
   ('invoiceDrafts', 'DRF', 0);
 
 -- Owner decision: authorized Admins review and resolve offline conflicts.
--- Only added to the Admin role (ROL-0002) if that role still exists.
+-- Only added to the built-in Admin role (ROL-0002), and only while it is still
+-- named 'Admin' -- a role that was renamed or repurposed gains nothing.
 INSERT OR IGNORE INTO role_permissions (role_id, permission)
   SELECT 'ROL-0002', p FROM (SELECT 'sync.view' AS p UNION ALL SELECT 'sync.manage')
-   WHERE EXISTS (SELECT 1 FROM roles WHERE id = 'ROL-0002');
+   WHERE EXISTS (SELECT 1 FROM roles WHERE id = 'ROL-0002' AND name = 'Admin');

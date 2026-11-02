@@ -46,7 +46,8 @@
    ============================================================ */
 
 import { ok, fail, methodNotAllowed, noDatabase, notFound, unprocessable, conflict, readIntParam } from '../lib/http.js';
-import { readJsonBody, readOptionalBody, nowIso, allocateId } from '../lib/write.js';
+import { readJsonBody, readOptionalBody, nowIso, allocateId, todayInDhaka } from '../lib/write.js';
+import { accountStanding } from '../lib/accounts.js';
 import { principalOf, authConfig } from '../lib/auth.js';
 import { can, collectionPermission } from '../lib/permissions.js';
 import { logChanges } from '../lib/changes.js';
@@ -67,6 +68,73 @@ export const SYNC_ROUTES = [
   'POST /api/invoice-drafts/:id/finalize',
   'POST /api/invoice-drafts/:id/discard',
 ];
+
+/* ---------------------------------------------------------------
+   The query budget (Cloudflare Workers FREE plan)
+   ---------------------------------------------------------------
+   D1 allows 50 queries per Worker invocation on the Free plan, and a
+   batch counts as one. Every sync request is held well below that:
+   the WHOLE request -- the auth gate before this handler included --
+   stays within REQUEST_QUERY_TARGET (default 40). Each operation and
+   each pulled record has a measured worst-case cost; work that would
+   not fit is answered 'deferred' and sent again in the next request,
+   so batches split themselves. A metered DB refuses any query past the
+   hard ceiling, so the limit can never actually be reached.
+   --------------------------------------------------------------- */
+
+/** The whole request's target; D1_QUERY_TARGET may lower it (never above 45). */
+export const REQUEST_QUERY_TARGET = 40;
+/** What the auth gate spends before this handler runs (an account session: 2), with margin. */
+export const GATE_QUERIES = 3;
+/** Kept back from operations for bookkeeping after the last one (its answer, a conflict). */
+export const TAIL_QUERIES = 5;
+/** Only for recording an outcome after a backstop stop (see meter()). */
+export const EMERGENCY_QUERIES = 5;
+/** Measured worst-case queries per operation kind, claim to final answer (tests/unit/api-sync-budget). */
+export const OP_COST = { create: 16, update: 10, status: 22, payment: 17, invoice_draft: 14, parts_usage: 25, stock_movement: 12 };
+/** Measured worst-case queries per pulled change (an upsert re-read through its route). */
+export const PULL_COST = 5;
+
+export class QueryBudgetExceeded extends Error {
+  constructor() { super('This request reached its database query budget.'); this.name = 'QueryBudgetExceeded'; }
+}
+
+function targetOf(env) {
+  const n = Number(env && env.D1_QUERY_TARGET);
+  return Number.isInteger(n) && n >= 20 && n <= 45 ? n : REQUEST_QUERY_TARGET;
+}
+
+/**
+ * A metered view of env for one sync request: every query this handler and
+ * the routes it calls internally make is counted, and any query past the hard
+ * ceiling is refused BEFORE it runs. It also carries the per-request account
+ * memo (lib/auth.js), so the internal calls re-use the gate's account read.
+ */
+export function meter(env) {
+  const hard = targetOf(env) - GATE_QUERIES;
+  // soft: where work may START; hard: where work must stop; and, only while
+  // an operation's outcome is being recorded, EMERGENCY_QUERIES more -- so a
+  // backstop stop can never leave an operation half-recorded. The absolute
+  // ceiling is target - gate + emergency = 42 metered (45 with the gate).
+  const state = { used: 0, hard, soft: hard - TAIL_QUERIES, recording: false };
+  const spend = () => {
+    if (state.used >= state.hard + (state.recording ? EMERGENCY_QUERIES : 0)) throw new QueryBudgetExceeded();
+    state.used += 1;
+  };
+  const wrap = (st) => ({
+    __real: st,
+    bind: (...a) => wrap(st.bind(...a)),
+    first: (...a) => { spend(); return st.first(...a); },
+    all: (...a) => { spend(); return st.all(...a); },
+    run: (...a) => { spend(); return st.run(...a); },
+    raw: (...a) => { spend(); return st.raw(...a); },
+  });
+  const DB = {
+    prepare: (sql) => wrap(env.DB.prepare(sql)),
+    batch: (list) => { spend(); return env.DB.batch(list.map((x) => (x && x.__real ? x.__real : x))); },
+  };
+  return { env: { ...env, DB, __principalMemo: new Map() }, state, fits: (n) => state.used + n <= state.soft };
+}
 
 /** How long offline access lasts after the last online authorization (owner decision). */
 export const OFFLINE_DAYS = 14;
@@ -120,10 +188,14 @@ function internalRequest(request, method, path, body) {
 
 async function call(c, method, path, body) {
   let res;
+  // Once a write has been sent, its outcome is no longer "certainly not
+  // applied": a server error after this point is handled as uncertain (H2).
+  if (method !== 'GET') c.wrote = true;
   try {
-    res = await c.dispatch(internalRequest(c.request, method, path, body));
+    res = await c.dispatch(internalRequest(c.request, method, path, body), c.env);
   } catch (err) {
     console.error('sync: internal call failed', method, path, err && err.message);
+    if (err instanceof QueryBudgetExceeded) throw err;
     return { status: 500, body: null };
   }
   let parsed = null;
@@ -179,8 +251,13 @@ async function deviceFor(env, who, deviceId) {
   if (typeof deviceId !== 'string' || !UUID.test(deviceId)) {
     return { response: unprocessable('A device id is required.', { deviceId: 'Must be the device UUID.' }) };
   }
-  const row = await loadDevice(env, deviceId);
-  if (!row) return { response: conflict('This device is not registered. Register it first.', { reason: 'device_not_registered' }) };
+  // The device AND whether this person registered on it, in one read: an
+  // account can only sync through a device it registered itself.
+  const row = await env.DB.prepare(
+    `SELECT d.*, EXISTS (SELECT 1 FROM device_accounts da WHERE da.device_id = d.id AND da.account_id = ?2) AS linked
+       FROM devices d WHERE d.id = ?1`
+  ).bind(deviceId, who.id).first();
+  if (!row || !Number(row.linked)) return { response: conflict('This device is not registered for you. Register it first.', { reason: 'device_not_registered' }) };
   if (row.revoked_at) {
     return { response: fail('device_revoked', 'An administrator has revoked offline access for this device. Its unsynced changes are kept; contact an administrator.', 403) };
   }
@@ -300,7 +377,7 @@ async function syncStatus(c, url) {
   for (const r of results || []) counts[r.status] = Number(r.n);
   const review = can(who, 'sync.view');
   const openConflicts = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM sync_conflicts WHERE status = 'Open' ${review ? '' : 'AND account_id = ?1'}`
+    `SELECT COUNT(*) AS n FROM sync_conflicts WHERE status IN ('Open', 'Resolving') ${review ? '' : 'AND account_id = ?1'}`
   ).bind(...(review ? [] : [who.id])).first();
   const drafts = can(who, 'invoices.view')
     ? await c.env.DB.prepare("SELECT COUNT(*) AS n FROM invoice_drafts WHERE status = 'Draft'").first() : { n: 0 };
@@ -385,7 +462,9 @@ const severityOf = (op) => SEVERITY[op.kind] || (op.collection === 'expenses' ? 
 function refusal(op, r, extra = {}) {
   const e = errorOf(r);
   if (r.status === 401) return { status: 'stop', reason: 'unauthorized' };
-  if (r.status >= 500 || r.status === 0) return { status: 'retry', reason: e.code || 'server_error' };
+  // A server error. Whether the change was saved is unknown if a write had
+  // already been sent: pushOps decides (H2), never a blind re-post.
+  if (r.status >= 500 || r.status === 0) return { status: 'retry', reason: e.code || 'server_error', serverError: true };
   let type = 'validation';
   if (r.status === 403) type = 'permission';
   else if (e.reason === 'insufficient_stock' || e.reason === 'part_not_found') type = 'inventory';
@@ -399,7 +478,24 @@ function refusal(op, r, extra = {}) {
   };
 }
 
-/** Apply one operation. Returns an outcome; never throws. `opts.force` skips the edit/duplicate checks (an Admin's decision). */
+/** The payment an offline operation already produced, found by the reference it writes into the notes. */
+async function findPayment(env, customerId, marker) {
+  if (!customerId) return null;
+  const like = `%${marker.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  return env.DB.prepare(`SELECT id FROM payments WHERE customer_id = ?1 AND notes LIKE ?2 ESCAPE '\\' LIMIT 1`).bind(customerId, like).first();
+}
+
+/** The permission an operation needs, as its online route would require it. */
+function needFor(op) {
+  if (op.kind === 'invoice_draft') return 'invoices.create';
+  if (op.kind === 'status') return collectionPermission('job-cards', 'status');
+  if (op.kind === 'parts_usage') return collectionPermission('job-cards', 'update');
+  if (op.kind === 'payment') return collectionPermission('payments', 'create');
+  if (op.kind === 'stock_movement') return collectionPermission('inventory-transactions', 'create');
+  return collectionPermission(PATHS[op.collection], op.kind === 'create' ? 'create' : 'update');
+}
+
+/** Apply one operation. Returns an outcome. `opts.force` skips the edit/duplicate checks (an Admin's decision). */
 async function applyOp(c, op, opts = {}) {
   const missing = [];
   const data = await resolveRefs(c, op.deviceId, op.data || {}, missing);
@@ -417,12 +513,9 @@ async function applyOp(c, op, opts = {}) {
   const path = PATHS[op.collection];
   // The author's own permission first, so a change they could not have made
   // online is reported as exactly that (the route would refuse it anyway).
-  const routeOp = { create: 'create', update: 'update', status: 'status', payment: 'create', stock_movement: 'create', parts_usage: 'update' }[op.kind];
-  if (routeOp && !opts.force) {
-    const need = collectionPermission(op.kind === 'parts_usage' || op.kind === 'status' ? 'job-cards' : path, routeOp);
-    if (!can(principalOf(c.request), need)) {
-      return { status: 'conflict', type: 'permission', severity: severityOf(op), reason: 'Your role does not allow this change, so the server did not apply it.', details: { local: op.data, needs: need } };
-    }
+  const need = needFor(op);
+  if (!can(principalOf(c.request), need)) {
+    return { status: 'conflict', type: 'permission', severity: severityOf(op), reason: 'Your role does not allow this change, so the server did not apply it.', details: { local: op.data, needs: need } };
   }
 
   switch (op.kind) {
@@ -480,7 +573,18 @@ async function applyOp(c, op, opts = {}) {
       const body = clientFree(data);
       const reference = typeof body.reference === 'string' ? body.reference.trim() : '';
       delete body.reference;
-      const notes = [body.notes, reference ? `Ref: ${reference}` : '', `Offline ${op.tempId || op.opId}`].filter(Boolean).join(' · ').slice(0, 1000);
+      const marker = `Offline ${op.tempId || op.opId}`;
+      const notes = [String(body.notes || '').slice(0, 900), reference ? `Ref: ${reference.slice(0, 60)}` : '', marker].filter(Boolean).join(' · ');
+      // Idempotent through the payment itself: one carrying this operation's
+      // reference already exists -> that IS the answer (a lost response, an
+      // interrupted attempt, an administrator's retry). Never a second payment.
+      const existing = await findPayment(c.env, body.customerId, marker);
+      if (existing) return { status: 'applied', id: existing.id, record: null, note: 'already_recorded' };
+      // The duplicate check and the insert, one device at a time per customer.
+      const lockKey = `pay:${body.customerId}`;
+      if (!(await acquire(c.env, lockKey, op.opId))) return { status: 'retry', reason: 'busy' };
+      try {
+      if (!body.date) body.date = todayInDhaka();
       if (!opts.force) {
         // The same money, recorded twice (two devices, or a retype online): held for review, not applied.
         const dup = await c.env.DB.prepare(
@@ -499,13 +603,15 @@ async function applyOp(c, op, opts = {}) {
       const r = await call(c, 'POST', '/api/payments', { ...body, notes });
       if (r.status === 201) return { status: 'applied', id: r.body.data.id, record: r.body.data };
       return refusal(op, r, { local: op.data });
+      } finally {
+        await release(c.env, lockKey, op.opId);
+      }
     }
 
     case 'invoice_draft': {
-      const who = principalOf(c.request);
-      if (!can(who, 'invoices.create')) {
-        return { status: 'conflict', type: 'permission', severity: 'financial', reason: 'Your role may not create invoices, so this draft was not accepted.', details: { local: op.data } };
-      }
+      // Idempotent by the operation id: a draft this operation already made is the answer.
+      const made = await c.env.DB.prepare('SELECT id FROM invoice_drafts WHERE op_id = ?1').bind(op.opId).first();
+      if (made) return { status: 'applied', id: made.id, record: null };
       const job = await call(c, 'GET', `/api/job-cards/${encodeURIComponent(data.jobCardId || '')}`);
       if (job.status !== 200) return refusal(op, job, { local: op.data });
       const allocated = await allocateId(c.env, 'invoiceDrafts');
@@ -577,8 +683,12 @@ async function applyPartsUsage(c, op, data, jobCardId) {
       if (next === 0) lines.splice(at, 1);
       else { lines[at].qty = next; if (unitPrice !== null) lines[at].unitPrice = unitPrice; }
     }
-    const r = await call(c, 'PUT', `/api/job-cards/${encodeURIComponent(jobCardId)}`, { partsUsed: lines });
+    // expectedUpdatedAt (M4): if anyone -- an online edit included -- saved this
+    // job card after it was read above, the route refuses (409, nothing
+    // written) and the movement is simply tried again later, on fresh lines.
+    const r = await call(c, 'PUT', `/api/job-cards/${encodeURIComponent(jobCardId)}`, { partsUsed: lines, expectedUpdatedAt: job.updatedAt || null });
     if (r.status === 200) return { status: 'applied', id: jobCardId, record: r.body.data };
+    if (r.status === 409 && errorOf(r).reason === 'stale_edit') return { status: 'retry', reason: 'stale_edit' };
     const out = refusal(op, r, { local: op.data, server: { status: job.status, partsUsed: job.partsUsed } });
     if (out.status === 'conflict' && out.type !== 'permission') { out.type = 'inventory'; out.severity = 'inventory'; }
     return out;
@@ -587,16 +697,21 @@ async function applyPartsUsage(c, op, data, jobCardId) {
   }
 }
 
-/* A short advisory lock per job card (sync_ops_locks): two devices' parts
-   usage on the same job is applied one after the other, so neither
-   read-modify-write of its lines can lose the other's. Expires by itself. */
+/* A short advisory lock (sync_ops_locks): two devices' parts usage on the
+   same job card, or two payments for the same customer, are applied one
+   after the other. ONE statement per attempt (it takes a free or expired
+   lock), at most three attempts: busy -> the operation waits for the next
+   request, having written nothing. Expires by itself after 15 seconds. */
 async function acquire(env, key, holder) {
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 3; i++) {
     const now = Date.now();
-    await env.DB.prepare('DELETE FROM sync_ops_locks WHERE expires_at < ?1').bind(now).run();
-    const r = await env.DB.prepare('INSERT OR IGNORE INTO sync_ops_locks (key, holder, expires_at) VALUES (?1, ?2, ?3)').bind(key, holder, now + 15000).run();
+    const r = await env.DB.prepare(
+      `INSERT INTO sync_ops_locks (key, holder, expires_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT (key) DO UPDATE SET holder = excluded.holder, expires_at = excluded.expires_at
+        WHERE sync_ops_locks.expires_at < ?4 OR sync_ops_locks.holder = excluded.holder`
+    ).bind(key, holder, now + 15000, now).run();
     if ((r.meta && r.meta.changes) === 1) return true;
-    await sleep(100);
+    if (i < 2) await sleep(150);
   }
   return false;
 }
@@ -628,7 +743,7 @@ function readOp(raw, who, deviceId) {
 
 /** Record a conflict for an operation (one open conflict per operation). */
 async function raiseConflict(env, op, out, at) {
-  const existing = await env.DB.prepare("SELECT id FROM sync_conflicts WHERE op_id = ?1 AND status = 'Open'").bind(op.opId).first();
+  const existing = await env.DB.prepare("SELECT id FROM sync_conflicts WHERE op_id = ?1 AND status IN ('Open', 'Resolving')").bind(op.opId).first();
   if (existing) return existing.id;
   const allocated = await allocateId(env, 'syncConflicts');
   if (allocated.error) throw new Error(allocated.error);
@@ -667,12 +782,20 @@ async function pushOps(c) {
   await touchDevice(c.env, deviceId, who, nowIso());
 
   const results = [];
-  let stopped = null;
+  let stopped = null;     // 'unauthorized' | 'budget': nothing more is applied in this request
   for (const raw of ops) {
-    if (stopped) { results.push({ opId: raw && raw.opId, status: 'retry', reason: stopped }); continue; }
+    if (stopped) { results.push({ opId: raw && raw.opId, status: stopped === 'budget' ? 'deferred' : 'retry', reason: stopped }); continue; }
     const read = readOp(raw, who, deviceId);
     if (read.error) { results.push({ opId: raw && raw.opId, status: 'rejected', reason: 'invalid_op', message: read.error }); continue; }
     const op = read.op;
+    // The query budget (Free plan): an operation starts only if its measured
+    // worst case fits. The rest is 'deferred' -- not claimed, nothing written
+    // -- and the device sends it again in its next request.
+    if (!c.meter.fits(OP_COST[op.kind] || 25)) {
+      stopped = 'budget';
+      results.push({ opId: op.opId, status: 'deferred', reason: 'budget' });
+      continue;
+    }
     const at = nowIso();
     // Claim it: the operation UUID is the idempotency key.
     const claim = await c.env.DB.prepare(
@@ -691,13 +814,7 @@ async function pushOps(c) {
         continue;
       }
       // Cut off mid-way earlier: whether it reached the database is unknown. Review, never re-post.
-      const out = { status: 'conflict', type: 'interrupted', severity: severityOf(op),
-        reason: 'An earlier attempt to apply this change was interrupted, so the server cannot tell whether it was saved. Check the records, then mark it applied or retry it.',
-        details: { local: op.data } };
-      const conflictId = await raiseConflict(c.env, op, out, at);
-      await c.env.DB.prepare("UPDATE sync_ops SET status = 'conflict', result = ?2, updated_at = ?3 WHERE op_id = ?1")
-        .bind(op.opId, json({ conflictId, type: out.type, reason: out.reason }), at).run();
-      results.push({ opId: op.opId, status: 'conflict', conflictId, type: out.type, reason: out.reason });
+      results.push(await finishing(c, () => holdForReview(c, op, 'An earlier attempt to apply this change was interrupted, so the server cannot tell whether it was saved. Check the records, then mark it applied or retry it.')));
       continue;
     }
 
@@ -706,43 +823,101 @@ async function pushOps(c) {
         `INSERT OR IGNORE INTO offline_stock_movements (op_id, part_id, job_card_id, type, quantity, account_id, device_id, local_created_at, received_at, status, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'Review', ?9)`
       ).bind(op.opId, String(op.data.partId || op.data.name || '').slice(0, 200), op.targetId, Number(op.data.quantity) < 0 ? 'return' : 'job-card-use',
-        Math.abs(Number(op.data.quantity)) || 0.0001, who.id, deviceId, op.localCreatedAt, at).run().catch(() => {});
+        Math.abs(Number(op.data.quantity)) || 0.0001, who.id, deviceId, op.localCreatedAt, at).run();
     }
 
+    c.wrote = false;
     let out;
     try { out = await applyOp(c, op); } catch (err) {
       console.error('sync: applying an operation failed', err && err.message);
-      out = { status: 'retry', reason: 'server_error' };
+      out = { status: 'retry', reason: err instanceof QueryBudgetExceeded ? 'budget' : 'server_error', serverError: true };
+      if (err instanceof QueryBudgetExceeded) stopped = 'budget';
     }
-    const done = nowIso();
-    if (out.status === 'applied') {
-      const answer = { record: out.record || null };
-      await c.env.DB.prepare("UPDATE sync_ops SET status = 'applied', result_id = ?2, result = ?3, applied_at = ?4, updated_at = ?4 WHERE op_id = ?1")
-        .bind(op.opId, out.id || null, json(answer), done).run();
-      if (op.kind === 'parts_usage') {
-        await c.env.DB.prepare("UPDATE offline_stock_movements SET status = 'Applied', applied_at = ?2, updated_at = ?2 WHERE op_id = ?1").bind(op.opId, done).run();
-      }
-      results.push({ opId: op.opId, status: 'applied', serverId: out.id || null, record: out.record || null });
-    } else if (out.status === 'conflict') {
-      const conflictId = await raiseConflict(c.env, op, out, done);
-      await c.env.DB.prepare("UPDATE sync_ops SET status = 'conflict', result = ?2, updated_at = ?3 WHERE op_id = ?1")
-        .bind(op.opId, json({ conflictId, type: out.type, reason: out.reason }), done).run();
-      results.push({ opId: op.opId, status: 'conflict', conflictId, type: out.type, reason: out.reason });
-    } else if (out.status === 'rejected') {
-      await c.env.DB.prepare("UPDATE sync_ops SET status = 'rejected', result = ?2, updated_at = ?3 WHERE op_id = ?1")
-        .bind(op.opId, json({ reason: out.reason }), done).run();
-      results.push({ opId: op.opId, status: 'rejected', reason: out.reason });
-    } else {
-      // Not applied and safe to try again (the route's write rolled back, or a
-      // dependency is still on its way): the claim is released.
-      await c.env.DB.prepare("DELETE FROM sync_ops WHERE op_id = ?1 AND status = 'processing'").bind(op.opId).run();
-      if (op.kind === 'parts_usage') await c.env.DB.prepare("DELETE FROM offline_stock_movements WHERE op_id = ?1 AND status = 'Review' AND conflict_id IS NULL").bind(op.opId).run();
-      if (out.status === 'stop') stopped = out.reason;
-      results.push({ opId: op.opId, status: 'retry', reason: out.reason });
-    }
+    // H2: a server error AFTER the write was sent leaves its outcome unknown.
+    // Kinds whose result can be checked, or that are safe to repeat, are
+    // settled here; the rest are held for review -- never re-posted blindly.
+    if (out.status === 'retry' && out.serverError && c.wrote) out = await settleUncertain(c, op, out);
+    if (out.status === 'stop') stopped = 'unauthorized';
+    results.push(await finishing(c, () => finishOp(c, op, out)));
   }
   if (stopped === 'unauthorized') return fail('unauthorized', 'Authentication required.', 401, { results });
-  return ok({ results }, { serverTime: nowIso() });
+  return ok({ results }, { serverTime: nowIso(), queries: c.meter.state.used, budget: c.meter.state.soft });
+}
+
+/** Run bookkeeping with the meter's recording allowance. */
+async function finishing(c, fn) {
+  c.meter.state.recording = true;
+  try { return await fn(); } finally { c.meter.state.recording = false; }
+}
+
+/** Record an operation's outcome and say what the device is told. */
+async function finishOp(c, op, out) {
+  const done = nowIso();
+  if (out.status === 'applied') {
+    await c.env.DB.prepare("UPDATE sync_ops SET status = 'applied', result_id = ?2, result = ?3, applied_at = ?4, updated_at = ?4 WHERE op_id = ?1")
+      .bind(op.opId, out.id || null, json({ record: out.record || null }), done).run();
+    if (op.kind === 'parts_usage') {
+      await c.env.DB.prepare("UPDATE offline_stock_movements SET status = 'Applied', applied_at = ?2, updated_at = ?2 WHERE op_id = ?1").bind(op.opId, done).run();
+    }
+    return { opId: op.opId, status: 'applied', serverId: out.id || null, record: out.record || null };
+  }
+  if (out.status === 'conflict') {
+    const conflictId = await raiseConflict(c.env, op, out, done);
+    await c.env.DB.prepare("UPDATE sync_ops SET status = 'conflict', result = ?2, updated_at = ?3 WHERE op_id = ?1")
+      .bind(op.opId, json({ conflictId, type: out.type, reason: out.reason }), done).run();
+    return { opId: op.opId, status: 'conflict', conflictId, type: out.type, reason: out.reason };
+  }
+  if (out.status === 'rejected') {
+    await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE sync_ops SET status = 'rejected', result = ?2, updated_at = ?3 WHERE op_id = ?1").bind(op.opId, json({ reason: out.reason }), done),
+      c.env.DB.prepare("UPDATE offline_stock_movements SET status = 'Dismissed', updated_at = ?2 WHERE op_id = ?1 AND status = 'Review'").bind(op.opId, done),
+    ]);
+    return { opId: op.opId, status: 'rejected', reason: out.reason };
+  }
+  // Not applied, and CERTAINLY not applied (no write was sent, or the write
+  // was refused, or settleUncertain proved it absent): the claim is released.
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM sync_ops WHERE op_id = ?1 AND status = 'processing'").bind(op.opId),
+    c.env.DB.prepare("DELETE FROM offline_stock_movements WHERE op_id = ?1 AND status = 'Review' AND conflict_id IS NULL").bind(op.opId),
+  ]);
+  return { opId: op.opId, status: out.status === 'stop' ? 'retry' : out.reason === 'budget' ? 'deferred' : 'retry', reason: out.reason };
+}
+
+/** Keep the claim and raise an 'interrupted' conflict: someone checks before anything is repeated. */
+async function holdForReview(c, op, reason) {
+  const out = { status: 'conflict', type: 'interrupted', severity: severityOf(op), reason, details: { local: op.data } };
+  return finishOp(c, op, out);
+}
+
+/**
+ * A write was sent and the answer was a server error: was it saved?
+ *   payment        look for the payment carrying this operation's reference
+ *   invoice_draft  look for the draft with this operation id
+ *   update, status repeating them is harmless (same values; a status already
+ *                  reached counts as applied), so the claim is released
+ *   anything else  cannot be told apart safely: held for review
+ */
+async function settleUncertain(c, op, out) {
+  try {
+    if (op.kind === 'payment') {
+      const missing = [];
+      const data = await resolveRefs(c, op.deviceId, op.data || {}, missing);
+      const found = await findPayment(c.env, data.customerId, `Offline ${op.tempId || op.opId}`);
+      return found ? { status: 'applied', id: found.id, record: null, note: 'confirmed_after_error' } : { ...out, serverError: false };
+    }
+    if (op.kind === 'invoice_draft') {
+      const made = await c.env.DB.prepare('SELECT id FROM invoice_drafts WHERE op_id = ?1').bind(op.opId).first();
+      return made ? { status: 'applied', id: made.id, record: null } : { ...out, serverError: false };
+    }
+    if (op.kind === 'update' || op.kind === 'status') return { ...out, serverError: false };
+  } catch (err) {
+    console.error('sync: could not check an uncertain outcome', err && err.message);
+  }
+  return {
+    status: 'conflict', type: 'interrupted', severity: severityOf(op),
+    reason: 'The server answered with an error after this change was sent, so it may or may not have been saved. Check the records, then mark it applied (naming the record) or retry it.',
+    details: { local: op.data, answer: { reason: out.reason } },
+  };
 }
 
 /* ---------------------------------------------------------------
@@ -771,44 +946,63 @@ async function pullChanges(c, url) {
   const d = await deviceFor(c.env, who, url.searchParams.get('deviceId'));
   if (d.response) return d.response;
   const cursor = readIntParam(url, 'cursor', { def: 0, min: 0, max: Number.MAX_SAFE_INTEGER });
-  const limit = readIntParam(url, 'limit', { def: 200, min: 1, max: 500 });
+  const limit = readIntParam(url, 'limit', { def: 50, min: 1, max: 100 });
   if (cursor.error || limit.error) return fail('invalid_param', cursor.error || limit.error, 400);
   const { results } = await c.env.DB.prepare(
     'SELECT seq, collection, record_id, op FROM change_log WHERE seq > ?1 ORDER BY seq LIMIT ?2'
   ).bind(cursor.value, limit.value + 1).all();
   const rows = results || [];
-  const hasMore = rows.length > limit.value;
+  let hasMore = rows.length > limit.value;
   const page = rows.slice(0, limit.value);
-  // The latest entry per record wins; the earlier ones are superseded.
-  const latest = new Map();
-  for (const r of page) latest.set(`${r.collection}|${r.record_id}`, r);
+  // A record changed twice in this page is sent once, at its LAST entry.
+  const last = new Map();
+  page.forEach((r, i) => last.set(`${r.collection}|${r.record_id}`, i));
+  const mayView = (collection) => {
+    if (collection === 'invoiceDrafts') return can(who, 'invoices.view');
+    const path = PATHS[collection];
+    return !!path && can(who, collectionPermission(path, 'view'));
+  };
+
   const changes = [];
-  const entries = [...latest.values()].sort((a, b) => a.seq - b.seq);
-  for (let i = 0; i < entries.length; i += 8) {
-    const chunk = await Promise.all(entries.slice(i, i + 8).map(async (r) => {
-      const base = { seq: Number(r.seq), collection: r.collection, id: r.record_id };
-      if (r.op === 'refresh') {
-        // A write elsewhere moved this collection (a payment, its invoice): re-read it -- if this role may.
-        const path = PATHS[r.collection];
-        return path && can(who, collectionPermission(path, 'view')) ? { ...base, op: 'refresh' } : { ...base, op: 'hidden' };
-      }
-      if (r.op === 'delete') return { ...base, op: 'delete' };
+  let next = cursor.value;
+  let stop = null;   // 'budget' | 'error' | 'unauthorized'
+  for (let i = 0; i < page.length; i++) {
+    const r = page[i];
+    if (last.get(`${r.collection}|${r.record_id}`) !== i) { next = Number(r.seq); continue; }  // superseded below
+    const base = { seq: Number(r.seq), collection: r.collection, id: r.record_id };
+    let change;
+    if (r.op === 'refresh') {
+      // A write elsewhere moved this collection (a payment, its invoice): re-read it -- if this role may.
+      change = { ...base, op: mayView(r.collection) ? 'refresh' : 'hidden' };
+    } else if (r.op === 'delete') {
+      // A tombstone names a record: only for a role that may see that collection.
+      change = { ...base, op: mayView(r.collection) ? 'delete' : 'hidden' };
+    } else if (!mayView(r.collection)) {
+      change = { ...base, op: 'hidden' };
+    } else {
+      // The Free-plan budget: a record re-read through its route costs up to PULL_COST.
+      if (!c.meter.fits(PULL_COST)) { stop = 'budget'; break; }
       if (r.collection === 'invoiceDrafts') {
-        if (!can(who, 'invoices.view')) return { ...base, op: 'hidden' };
         const draft = await draftById(c.env, r.record_id);
-        return draft ? { ...base, op: 'upsert', record: draft } : { ...base, op: 'delete' };
+        change = draft ? { ...base, op: 'upsert', record: draft } : { ...base, op: 'delete' };
+      } else {
+        const got = await call(c, 'GET', `/api/${PATHS[r.collection]}/${encodeURIComponent(r.record_id)}`);
+        if (got.status === 200) change = { ...base, op: 'upsert', record: got.body.data };
+        else if (got.status === 404) change = { ...base, op: 'delete' };
+        else if (got.status === 403) change = { ...base, op: 'hidden' };
+        // M3: anything else (a server error, an expired session) stops the
+        // page BEFORE this entry -- the cursor never moves past what was not read.
+        else { stop = got.status === 401 ? 'unauthorized' : 'error'; break; }
       }
-      const path = PATHS[r.collection];
-      if (!path) return { ...base, op: 'hidden' };
-      const got = await call(c, 'GET', `/api/${path}/${encodeURIComponent(r.record_id)}`);
-      if (got.status === 200) return { ...base, op: 'upsert', record: got.body.data };
-      if (got.status === 404) return { ...base, op: 'delete' };
-      return { ...base, op: 'hidden' };   // not this role's to read (403), or a passing error
-    }));
-    changes.push(...chunk);
+    }
+    changes.push(change);
+    next = Number(r.seq);
   }
-  const next = page.length ? Number(page[page.length - 1].seq) : cursor.value;
-  return ok({ changes, cursor: next, hasMore }, { serverTime: nowIso() });
+  if (stop === 'unauthorized') return fail('unauthorized', 'Authentication required.', 401);
+  if (stop === 'budget') hasMore = true;
+  if (stop === null && page.length) next = Number(page[page.length - 1].seq);
+  return ok({ changes, cursor: next, hasMore, ...(stop === 'error' ? { retryLater: true } : {}) },
+    { serverTime: nowIso(), queries: c.meter.state.used, budget: c.meter.state.soft });
 }
 
 /* ---------------------------------------------------------------
@@ -845,7 +1039,8 @@ async function listConflicts(c, url) {
   if (!all && (!who || who.kind !== 'account')) return ok([], { count: 0 });
   const status = url.searchParams.get('status') || 'Open';
   const where = []; const binds = [];
-  if (status !== 'all') { binds.push(status === 'Resolved' ? 'Resolved' : 'Open'); where.push(`sc.status = ?${binds.length}`); }
+  if (status === 'Resolved') where.push("sc.status = 'Resolved'");
+  else if (status !== 'all') where.push("sc.status IN ('Open', 'Resolving')");
   if (!all) { binds.push(who.id); where.push(`sc.account_id = ?${binds.length}`); }
   const { results } = await c.env.DB.prepare(
     `${CONFLICT_SQL} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY sc.created_at DESC LIMIT 500`
@@ -867,6 +1062,9 @@ async function getConflict(c, id) {
   return ok(toConflict(row, events));
 }
 
+/** A claim on a conflict older than this was abandoned (the request died) and may be taken over. */
+const STALE_RESOLVING_MS = 2 * 60 * 1000;
+
 async function resolveConflict(c, id) {
   const who = principalOf(c.request);
   if (!can(who, 'sync.manage')) return fail('forbidden', 'Only an authorized administrator can resolve sync conflicts.', 403);
@@ -874,11 +1072,12 @@ async function resolveConflict(c, id) {
   if (body.error) return fail('invalid_body', body.error, 400);
   const row = await c.env.DB.prepare('SELECT * FROM sync_conflicts WHERE id = ?1').bind(id).first();
   if (!row) return fail('not_found', 'No such conflict.', 404);
-  if (row.status !== 'Open') return conflict('This conflict is already resolved.', { reason: 'already_resolved' });
+  if (row.status === 'Resolved') return conflict('This conflict is already resolved.', { reason: 'already_resolved' });
   const action = body.value.action;
   const note = typeof body.value.note === 'string' ? body.value.note.trim().slice(0, 1000) : '';
-  if (!actionsFor(row).includes(action)) {
-    return unprocessable('That action is not available for this conflict.', { action: `One of: ${actionsFor(row).join(', ')}.` });
+  const available = actionsFor({ ...row, status: 'Open' });
+  if (!available.includes(action)) {
+    return unprocessable('That action is not available for this conflict.', { action: `One of: ${available.join(', ')}.` });
   }
   // Financial and inventory decisions are reviewed: the reason is required and kept.
   if (row.severity !== 'normal' && note.length < 5) {
@@ -893,12 +1092,52 @@ async function resolveConflict(c, id) {
   };
   const at = nowIso();
   const actor = who.kind === 'account' ? who.id : who.kind;
+  const applies = ['retry', 'apply_local', 'apply_anyway'].includes(action);
+
+  // M2: an administrator's decision to APPLY never goes further than the
+  // change's own author could today: the author's account must still be
+  // active, their device not revoked, and their CURRENT role must allow it.
+  if (applies) {
+    const author = await accountStanding(c.env, op.accountId);
+    if (!author || !author.active) {
+      return conflict('The person who made this change offline can no longer sign in, so it cannot be applied on their behalf. Dismiss it, or make the change yourself online.', { reason: 'author_inactive' });
+    }
+    const device = await loadDevice(c.env, op.deviceId);
+    if (device && device.revoked_at) {
+      return conflict('The device this change came from has been revoked, so it cannot be applied. Dismiss it, or make the change yourself online.', { reason: 'device_revoked' });
+    }
+    if (!can(author, needFor(op))) {
+      return conflict("The author's role does not allow this change, so it cannot be applied on their behalf. Dismiss it, or make the change yourself online.", { reason: 'author_not_permitted', needs: needFor(op) });
+    }
+  }
+  // mark_applied names a record that must really exist.
+  let markedId = null;
+  if (action === 'mark_applied') {
+    markedId = typeof body.value.resultId === 'string' ? body.value.resultId.trim() : '';
+    if (!/^[A-Z]{2,5}-\d{1,10}$/.test(markedId)) return unprocessable('Name the record that was saved.', { resultId: 'A record id such as PAY-0042.' });
+    const exists = op.kind === 'invoice_draft'
+      ? await c.env.DB.prepare('SELECT id FROM invoice_drafts WHERE id = ?1').bind(markedId).first()
+      : PATHS[op.collection] ? ((await call(c, 'GET', `/api/${PATHS[op.collection]}/${encodeURIComponent(markedId)}`)).status === 200) : false;
+    if (!exists) return unprocessable(`${markedId} was not found.`, { resultId: 'No such record.' });
+  }
+
+  // H1: claim the conflict atomically. Of two administrators (or two clicks),
+  // exactly one gets it; the other is told it is already being decided.
+  const claimed = await c.env.DB.prepare(
+    `UPDATE sync_conflicts SET status = 'Resolving', claimed_by = ?2, claimed_at = ?3
+      WHERE id = ?1 AND (status = 'Open' OR (status = 'Resolving' AND claimed_at < ?4))`
+  ).bind(id, actor, at, new Date(Date.now() - STALE_RESOLVING_MS).toISOString()).run();
+  if ((claimed.meta && claimed.meta.changes) !== 1) {
+    return conflict('Another administrator is deciding this conflict right now (or has just decided it).', { reason: 'already_resolving' });
+  }
+  const unclaim = () => c.env.DB.prepare("UPDATE sync_conflicts SET status = 'Open', claimed_by = NULL, claimed_at = NULL WHERE id = ?1 AND status = 'Resolving' AND claimed_by = ?2").bind(id, actor).run();
+
   const finish = async (resolution, resultId, outcome, opStatus) => {
     const stmts = [
-      c.env.DB.prepare(`UPDATE sync_conflicts SET status = 'Resolved', resolution = ?2, resolution_note = ?3, resolved_by = ?4, resolved_at = ?5, result_id = ?6 WHERE id = ?1 AND status = 'Open'`)
+      c.env.DB.prepare(`UPDATE sync_conflicts SET status = 'Resolved', resolution = ?2, resolution_note = ?3, resolved_by = ?4, resolved_at = ?5, result_id = ?6 WHERE id = ?1 AND status = 'Resolving' AND claimed_by = ?4`)
         .bind(id, resolution, note, actor, at, resultId || null),
       c.env.DB.prepare('INSERT INTO sync_conflict_events (conflict_id, at, account_id, action, note, outcome) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
-        .bind(id, at, actor, resolution, note, json(outcome)),
+        .bind(id, at, actor, resolution, note, json({ ...outcome, author: op.accountId, device: op.deviceId })),
     ];
     if (opStatus === 'applied') {
       stmts.push(c.env.DB.prepare("UPDATE sync_ops SET status = 'applied', result_id = ?2, result = ?3, applied_at = ?4, updated_at = ?4 WHERE op_id = ?1")
@@ -914,18 +1153,27 @@ async function resolveConflict(c, id) {
     return ok(toConflict(r));
   };
 
-  if (action === 'dismiss' || action === 'keep_server') return finish(action, null, {}, 'dismissed');
-  if (action === 'mark_applied') {
-    const resultId = typeof body.value.resultId === 'string' ? body.value.resultId.trim() : '';
-    if (!/^[A-Z]{2,5}-\d{1,10}$/.test(resultId)) return unprocessable('Name the record that was saved.', { resultId: 'A record id such as PAY-0042.' });
-    return finish(action, resultId, { resultId }, 'applied');
+  try {
+    if (action === 'dismiss' || action === 'keep_server') return await finish(action, null, {}, 'dismissed');
+    if (action === 'mark_applied') return await finish(action, markedId, { resultId: markedId }, 'applied');
+    // retry / apply_local / apply_anyway: apply it now, with the same checks as a push.
+    c.wrote = false;
+    let out;
+    try { out = await applyOp(c, op, { force: action !== 'retry' }); } catch (err) {
+      out = { status: 'retry', reason: 'server_error', serverError: true };
+    }
+    if (out.status === 'retry' && out.serverError && c.wrote) out = await settleUncertain(c, op, out);
+    if (out.status === 'applied') return await finish(action, out.id, { record: out.record || null }, 'applied');
+    await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE sync_conflicts SET status = 'Open', claimed_by = NULL, claimed_at = NULL WHERE id = ?1 AND status = 'Resolving' AND claimed_by = ?2").bind(id, actor),
+      c.env.DB.prepare('INSERT INTO sync_conflict_events (conflict_id, at, account_id, action, note, outcome) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+        .bind(id, at, actor, `${action}_failed`, note, json({ status: out.status, reason: out.reason || null, details: out.details || null })),
+    ]);
+    return conflict(`Still not applied: ${out.reason || out.status}`, { reason: 'not_applied', outcome: out.status });
+  } catch (err) {
+    await unclaim().catch(() => {});
+    throw err;
   }
-  // retry / apply_local / apply_anyway: apply it now, with this administrator's authority.
-  const out = await applyOp(c, op, { force: action !== 'retry' });
-  if (out.status === 'applied') return finish(action, out.id, { record: out.record || null }, 'applied');
-  await c.env.DB.prepare('INSERT INTO sync_conflict_events (conflict_id, at, account_id, action, note, outcome) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
-    .bind(id, at, actor, `${action}_failed`, note, json({ status: out.status, reason: out.reason || null, details: out.details || null })).run();
-  return conflict(`Still not applied: ${out.reason || out.status}`, { reason: 'not_applied', outcome: out.status });
 }
 
 /* ---------------------------------------------------------------
@@ -998,38 +1246,44 @@ async function discardDraft(c, id) {
  */
 export async function sync(request, env, url, dispatch, ctx) {
   if (!env.DB) return noDatabase();
-  const c = { request, env, dispatch, ctx };
+  // Every query this request makes -- and the routes it calls internally -- is
+  // metered against the Free-plan budget; internal calls share the gate's account read.
+  const metered = meter(env);
+  const c = { request, env: metered.env, dispatch, ctx, meter: metered, wrote: false };
   const p = url.pathname;
   const m = request.method;
+  // H3: every handler is AWAITED inside the try, so a failure becomes a JSON
+  // error here instead of escaping the router as an uncaught exception.
   try {
-    if (p === '/api/devices/register') return m === 'POST' ? registerDevice(c) : methodNotAllowed(['POST']);
-    if (p === '/api/devices') return m === 'GET' ? listDevices(c) : methodNotAllowed(['GET']);
+    if (p === '/api/devices/register') return m === 'POST' ? await registerDevice(c) : methodNotAllowed(['POST']);
+    if (p === '/api/devices') return m === 'GET' ? await listDevices(c) : methodNotAllowed(['GET']);
     let match = /^\/api\/devices\/([^/]+)$/.exec(p);
-    if (match) return m === 'DELETE' ? revokeDevice(c, decodeURIComponent(match[1])) : methodNotAllowed(['DELETE']);
-    if (p === '/api/sync/status') return m === 'GET' ? syncStatus(c, url) : methodNotAllowed(['GET']);
-    if (p === '/api/sync/push') return m === 'POST' ? pushOps(c) : methodNotAllowed(['POST']);
-    if (p === '/api/sync/pull') return m === 'GET' ? pullChanges(c, url) : methodNotAllowed(['GET']);
-    if (p === '/api/sync/history') return m === 'GET' ? syncHistory(c, url) : methodNotAllowed(['GET']);
-    if (p === '/api/sync/conflicts') return m === 'GET' ? listConflicts(c, url) : methodNotAllowed(['GET']);
+    if (match) return m === 'DELETE' ? await revokeDevice(c, decodeURIComponent(match[1])) : methodNotAllowed(['DELETE']);
+    if (p === '/api/sync/status') return m === 'GET' ? await syncStatus(c, url) : methodNotAllowed(['GET']);
+    if (p === '/api/sync/push') return m === 'POST' ? await pushOps(c) : methodNotAllowed(['POST']);
+    if (p === '/api/sync/pull') return m === 'GET' ? await pullChanges(c, url) : methodNotAllowed(['GET']);
+    if (p === '/api/sync/history') return m === 'GET' ? await syncHistory(c, url) : methodNotAllowed(['GET']);
+    if (p === '/api/sync/conflicts') return m === 'GET' ? await listConflicts(c, url) : methodNotAllowed(['GET']);
     match = /^\/api\/sync\/conflicts\/(CNF-\d{1,10})(\/resolve)?$/.exec(p);
     if (match) {
-      if (match[2]) return m === 'POST' ? resolveConflict(c, match[1]) : methodNotAllowed(['POST']);
-      return m === 'GET' ? getConflict(c, match[1]) : methodNotAllowed(['GET']);
+      if (match[2]) return m === 'POST' ? await resolveConflict(c, match[1]) : methodNotAllowed(['POST']);
+      return m === 'GET' ? await getConflict(c, match[1]) : methodNotAllowed(['GET']);
     }
-    if (p === '/api/invoice-drafts') return m === 'GET' ? listDrafts(c, url) : methodNotAllowed(['GET']);
+    if (p === '/api/invoice-drafts') return m === 'GET' ? await listDrafts(c, url) : methodNotAllowed(['GET']);
     match = /^\/api\/invoice-drafts\/(DRF-\d{1,10})(?:\/(finalize|discard))?$/.exec(p);
     if (match) {
-      if (match[2] === 'finalize') return m === 'POST' ? finalizeDraft(c, match[1]) : methodNotAllowed(['POST']);
-      if (match[2] === 'discard') return m === 'POST' ? discardDraft(c, match[1]) : methodNotAllowed(['POST']);
+      if (match[2] === 'finalize') return m === 'POST' ? await finalizeDraft(c, match[1]) : methodNotAllowed(['POST']);
+      if (match[2] === 'discard') return m === 'POST' ? await discardDraft(c, match[1]) : methodNotAllowed(['POST']);
       if (m !== 'GET') return methodNotAllowed(['GET']);
       if (!can(principalOf(request), 'invoices.view')) return fail('forbidden', 'Your role does not allow this.', 403);
-      const d = await draftById(env, match[1]);
+      const d = await draftById(c.env, match[1]);
       return d ? ok(d) : fail('not_found', 'No such invoice draft.', 404);
     }
     return notFound(SYNC_ROUTES);
   } catch (err) {
     console.error('sync route failed:', err && err.message);
-    if (/no such table/i.test(String(err && err.message))) return fail('not_migrated', 'Offline sync needs migration 0020.', 503);
+    if (/no such table|no such column/i.test(String(err && err.message))) return fail('not_migrated', 'Offline sync needs migration 0020.', 503);
+    if (err instanceof QueryBudgetExceeded) return fail('query_budget', 'This request reached its database budget. Try again.', 503);
     return fail('database_error', 'The sync request could not be completed.', 500);
   }
 }

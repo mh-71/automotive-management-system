@@ -210,7 +210,20 @@ let codeA, codeB, escrowA;
 /* ---------- C. push: temporary references, idempotency ---------- */
 console.log('\n-- C. push --');
 const op = (kind, fields) => ({ opId: randomUUID(), kind, createdAt: new Date().toISOString(), ...fields });
-const push = (cookie, deviceId, ops) => api('POST', '/api/sync/push', { deviceId, ops }, cookie);
+/** Push the way the client does (Free plan, 0020): operations the server defers to stay
+    within its query budget are sent again in the next request; answers keep their order. */
+async function push(cookie, deviceId, ops) {
+  let left = ops;
+  const answers = new Map();
+  let last;
+  for (let round = 0; round < 100 && left.length; round++) {
+    last = await api('POST', '/api/sync/push', { deviceId, ops: left }, cookie);
+    if (last.status !== 200) return last;
+    for (const a of last.body.data.results) if (a.status !== 'deferred') answers.set(a.opId, a);
+    left = left.filter((o) => !answers.has(o && o.opId));
+  }
+  return { ...last, body: { ...last.body, data: { results: ops.map((o) => answers.get(o && o.opId) || { opId: o && o.opId, status: 'deferred' }) } } };
+}
 const T = (code, prefix, n) => `OFF-${code}-${prefix}-${String(n).padStart(4, '0')}`;
 let custA, vehA, jobA;
 {

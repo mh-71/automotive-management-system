@@ -310,7 +310,18 @@ async function sessionPrincipal(request, env, config, nowSeconds) {
   }
   const claim = await accountSessionClaim(cookie, config.secret, nowSeconds);
   if (!claim) return null;
-  return loadSessionAccount(env, claim.accountId, claim.sessionVersion);
+  // Offline sync (0020) applies a batch of operations by calling this Worker
+  // again, once per operation, inside ONE request. Its environment carries a
+  // per-request memo, so the account is read from the database once per
+  // request instead of once per internal call (D1 limits queries per
+  // invocation). The cookie's signature and expiry are still checked above on
+  // every call; only the database read is reused, and only within the request.
+  const memo = env && env.__principalMemo;
+  const key = `${claim.accountId}.${claim.sessionVersion}`;
+  if (memo && memo.has(key)) return memo.get(key);
+  const who = await loadSessionAccount(env, claim.accountId, claim.sessionVersion);
+  if (memo) memo.set(key, who);
+  return who;
 }
 
 /* ---------------------------------------------------------------

@@ -528,7 +528,8 @@ const worker = {
     // permission it needs (routes/sync.js). Operations are applied by calling
     // this same Worker, so every existing rule still applies to them.
     if (/^\/api\/(sync|devices|invoice-drafts)(\/|$)/.test(url.pathname)) {
-      return run(sync, url, (req) => worker.fetch(req, env, ctx), ctx);
+      // Internal calls carry the sync request's metered environment (routes/sync.js meter()).
+      return run(sync, url, (req, meteredEnv) => worker.fetch(req, meteredEnv || env, ctx), ctx);
     }
 
     // The exact path only. Anything below it (/api/settings/1, and there is
