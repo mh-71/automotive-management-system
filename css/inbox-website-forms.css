@@ -1,238 +1,126 @@
 /* ============================================================
-   inbox-website-forms.css — Social Inbox › Website Forms (demo page, UI only)
+   inbox-website-forms.css — Social Inbox › Website Forms
    ------------------------------------------------------------
-   Loaded only by pages/inbox-website-forms.html, and every rule is scoped
-   to [data-page="inbox-website-forms"], so nothing here can reach another
-   page. Built on the shared tokens and components (card, badges,
-   inputs, buttons, empty state): a submission list, the submission
-   with its internal demo notes, and a customer and vehicle panel.
-   The panes fold as the screen narrows.
+   Loaded only by pages/inbox-website-forms.html; every rule is scoped
+   to [data-page="inbox-website-forms"]. Two panes -- enquiries and
+   the open enquiry -- built from the shared card, chip, input, select,
+   button and field components and the shared colour tokens, so light
+   and dark themes both follow. On a phone the panes take the screen
+   in turn.
    ============================================================ */
 
 [data-page="inbox-website-forms"] {
   --wf-violet: #7c5cd6;
-    --wf-h: min(700px, calc(100vh - 300px));
+  --wf-violet-soft: color-mix(in srgb, var(--wf-violet) 14%, var(--surface));
+}
+[data-page="inbox-website-forms"] [hidden] { display: none !important; }
+[data-page="inbox-website-forms"] .wf-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 
-[data-page="inbox-website-forms"] .wf-sr-only {
-  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
-  clip: rect(0 0 0 0); white-space: nowrap;
-}
+/* ---------- header, chips, toolbar ---------- */
+[data-page="inbox-website-forms"] .wf-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+[data-page="inbox-website-forms"] .wf-head__icon { flex: none; width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: var(--wf-violet-soft); color: var(--wf-violet); }
+[data-page="inbox-website-forms"] .wf-head__text { flex: 1; min-width: 0; }
+[data-page="inbox-website-forms"] .wf-head__title { margin: 0; font-size: 1.45rem; font-weight: 700; color: var(--text); }
+[data-page="inbox-website-forms"] .wf-head .page-subtitle { margin: 4px 0 0; font-size: .88rem; color: var(--text-2); }
+[data-page="inbox-website-forms"] .wf-refresh { display: inline-flex; align-items: center; gap: 6px; }
 
-/* The Social Inbox group is marked while this page is open, like Customer CRM. */
-[data-page="inbox-website-forms"] .nav__inbox > .nav__summary { color: #fff; font-weight: 600; }
-[data-page="inbox-website-forms"] .nav__inbox > .nav__summary > svg:first-child { color: var(--amber); opacity: 1; }
-
-/* ---------- demo banner ---------- */
-[data-page="inbox-website-forms"] .wf-demo {
-  display: flex; align-items: flex-start; gap: 10px;
-  margin: 0 0 14px; padding: 11px 14px;
-  border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--line));
-  border-left-width: 4px;
-  border-radius: var(--radius-sm);
-  background: var(--amber-soft);
-  color: var(--text);
-  font-size: .84rem;
-}
-[data-page="inbox-website-forms"] .wf-demo svg { flex: none; margin-top: 1px; color: var(--amber-text); }
-[data-page="inbox-website-forms"] .wf-demo p { margin: 0; }
-[data-page="inbox-website-forms"] .wf-demo strong { display: block; color: var(--amber-text); letter-spacing: .02em; }
-
-/* ---------- channel header ---------- */
-[data-page="inbox-website-forms"] .wf-channel { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 14px; }
-[data-page="inbox-website-forms"] .wf-channel__logo {
-  flex: none; display: grid; place-items: center;
-  width: 46px; height: 46px; border-radius: 12px;
-  background: color-mix(in srgb, var(--wf-violet) 14%, var(--surface)); color: var(--wf-violet);
-}
-[data-page="inbox-website-forms"] .wf-channel__text { flex: 1; min-width: 200px; }
-[data-page="inbox-website-forms"] .wf-channel__title {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
-  margin: 0; font-size: 1.35rem; font-weight: 700; color: var(--text);
-}
-[data-page="inbox-website-forms"] .wf-channel .page-subtitle { margin: 2px 0 0; font-size: .84rem; color: var(--text-2); }
-[data-page="inbox-website-forms"] .wf-conn {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 12px; border-radius: 999px;
-  background: var(--bad-soft); color: var(--bad);
-  font-size: .8rem; font-weight: 700;
-}
-[data-page="inbox-website-forms"] .wf-conn small { font-weight: 500; opacity: .85; }
-[data-page="inbox-website-forms"] .wf-conn__dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-
-/* ---------- toolbar ---------- */
-[data-page="inbox-website-forms"] .wf-toolbar {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;
-}
-[data-page="inbox-website-forms"] .wf-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+[data-page="inbox-website-forms"] .wf-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 [data-page="inbox-website-forms"] .wf-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 14px;
-  border: 1px solid var(--line); border-radius: 999px;
-  background: var(--surface); color: var(--text-2);
-  font: inherit; font-size: .82rem; font-weight: 600;
-  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text-2); font: inherit; font-size: .84rem; font-weight: 600; cursor: pointer;
 }
-[data-page="inbox-website-forms"] .wf-chip:hover { border-color: var(--line-strong); color: var(--text); }
-[data-page="inbox-website-forms"] .wf-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-[data-page="inbox-website-forms"] .wf-chip.is-active { background: var(--amber); border-color: var(--amber); color: #241a05; }
-[data-page="inbox-website-forms"] .wf-chip__n {
-  min-width: 20px; padding: 0 6px; border-radius: 999px;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  font-size: .72rem; text-align: center;
-}
-[data-page="inbox-website-forms"] .wf-search { position: relative; display: block; }
+[data-page="inbox-website-forms"] .wf-chip.is-active { border-color: var(--amber); color: var(--amber-text); background: var(--amber-soft); }
+[data-page="inbox-website-forms"] .wf-chip:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+[data-page="inbox-website-forms"] .wf-chip__n { min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--paper); font-size: .72rem; }
+[data-page="inbox-website-forms"] .wf-chip__n:empty { display: none; }
+
+[data-page="inbox-website-forms"] .wf-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+[data-page="inbox-website-forms"] .wf-search { position: relative; flex: 1 1 280px; }
 [data-page="inbox-website-forms"] .wf-search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
-[data-page="inbox-website-forms"] .wf-search .input { width: 280px; padding-left: 36px; }
+[data-page="inbox-website-forms"] .wf-search .input { width: 100%; height: 40px; padding-left: 36px; }
+[data-page="inbox-website-forms"] .wf-toolbar > .select { width: 150px; height: 40px; }
+[data-page="inbox-website-forms"] .wf-date { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--text-2); }
+[data-page="inbox-website-forms"] .wf-date .input { height: 40px; width: 150px; }
 
-/* ---------- three-pane shell ---------- */
-[data-page="inbox-website-forms"] .wf-shell {
-  display: grid;
-  grid-template-columns: minmax(270px, 330px) minmax(0, 1fr) 270px;
-  height: var(--wf-h);
-  min-height: 480px;
-  padding: 0;
-  overflow: hidden;
-}
-[data-page="inbox-website-forms"] .wf-list-pane { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
-[data-page="inbox-website-forms"] .wf-detail-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-[data-page="inbox-website-forms"] .wf-info-pane {
-  min-height: 0; overflow-y: auto;
-  padding: 16px; border-left: 1px solid var(--line);
-  display: flex; flex-direction: column; gap: 12px;
-}
-/* Before a chat is chosen, the info column is not there at all and the chat takes its space. */
-[data-page="inbox-website-forms"] .wf-shell:not(.has-selection) { grid-template-columns: minmax(270px, 330px) minmax(0, 1fr); }
-[data-page="inbox-website-forms"] .wf-info-pane[hidden] { display: none; }
-
-[data-page="inbox-website-forms"] .wf-state { margin: auto; padding: 24px; text-align: center; }
-[data-page="inbox-website-forms"] #waLoading { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-size: .86rem; }
-[data-page="inbox-website-forms"] #waLoading[hidden] { display: none; }
-[data-page="inbox-website-forms"] .wf-spinner {
-  width: 18px; height: 18px; border-radius: 50%;
-  border: 2px solid var(--line); border-top-color: var(--wf-violet);
-  animation: wf-spin .8s linear infinite;
-}
-@keyframes wf-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { [data-page="inbox-website-forms"] .wf-spinner { animation: none; } }
-
-/* ---------- chat list ---------- */
-[data-page="inbox-website-forms"] .wf-list { flex: 1; min-height: 0; margin: 0; padding: 6px; list-style: none; overflow-y: auto; }
+/* ---------- panes ---------- */
+[data-page="inbox-website-forms"] .wf-layout { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
+[data-page="inbox-website-forms"] .wf-col { padding: 0; overflow: hidden; min-width: 0; }
+[data-page="inbox-website-forms"] .wf-col--list { max-height: calc(100vh - 260px); display: flex; flex-direction: column; }
+[data-page="inbox-website-forms"] .wf-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
 [data-page="inbox-website-forms"] .wf-row {
-  display: flex; align-items: flex-start; gap: 12px; width: 100%;
-  padding: 11px 12px; border: 0; border-radius: var(--radius-sm);
-  background: transparent; color: inherit; font: inherit; text-align: left;
-  cursor: pointer;
+  display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 11px 12px; border: 0; border-radius: 10px; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
 }
 [data-page="inbox-website-forms"] .wf-row:hover { background: var(--paper); }
-[data-page="inbox-website-forms"] .wf-row:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-[data-page="inbox-website-forms"] .wf-row.is-selected { background: color-mix(in srgb, var(--wf-violet) 10%, var(--surface)); }
-[data-page="inbox-website-forms"] .wf-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
-[data-page="inbox-website-forms"] .wf-row__name {
-  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  font-size: .88rem; font-weight: 600; color: var(--text);
+[data-page="inbox-website-forms"] .wf-row.is-active { background: var(--wf-violet-soft); }
+[data-page="inbox-website-forms"] .wf-row:focus-visible { outline: 2px solid var(--wf-violet); outline-offset: -2px; }
+[data-page="inbox-website-forms"] .wf-row__top { display: flex; align-items: center; gap: 8px; }
+[data-page="inbox-website-forms"] .wf-row__name { flex: 1; min-width: 0; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-page="inbox-website-forms"] .wf-row.is-new .wf-row__name { font-weight: 700; }
+[data-page="inbox-website-forms"] .wf-row__what { font-size: .8rem; font-weight: 600; color: var(--wf-violet); }
+[data-page="inbox-website-forms"] .wf-row__msg { font-size: .8rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-page="inbox-website-forms"] .wf-row__meta { font-size: .72rem; color: var(--text-3); }
+[data-page="inbox-website-forms"] .wf-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: .8rem; color: var(--text-2); }
+
+[data-page="inbox-website-forms"] .wf-status { flex: none; font-size: .7rem; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+[data-page="inbox-website-forms"] .wf-status--new { background: var(--info-soft); color: var(--info); }
+[data-page="inbox-website-forms"] .wf-status--contacted { background: var(--amber-soft); color: var(--amber-text); }
+[data-page="inbox-website-forms"] .wf-status--confirmed { background: var(--good-soft); color: var(--good); }
+[data-page="inbox-website-forms"] .wf-status--rejected { background: var(--paper); color: var(--text-2); border: 1px solid var(--line); }
+
+/* ---------- states ---------- */
+[data-page="inbox-website-forms"] .wf-state:empty { display: none; }
+[data-page="inbox-website-forms"] .wf-box { padding: 36px 18px; text-align: center; color: var(--text-2); font-size: .86rem; }
+[data-page="inbox-website-forms"] .wf-box strong { display: block; margin-bottom: 6px; color: var(--text); font-size: .95rem; }
+[data-page="inbox-website-forms"] .wf-box p { margin: 0 0 12px; }
+[data-page="inbox-website-forms"] .wf-state--center { display: grid; place-items: center; min-height: 260px; padding: 24px; color: var(--text-3); text-align: center; }
+[data-page="inbox-website-forms"] .wf-skel { display: grid; gap: 10px; padding: 14px; }
+[data-page="inbox-website-forms"] .wf-skel span {
+  display: block; height: 70px; border-radius: 10px;
+  background: linear-gradient(90deg, var(--paper) 25%, color-mix(in srgb, var(--line) 60%, var(--paper)) 50%, var(--paper) 75%);
+  background-size: 200% 100%; animation: wf-shimmer 1.2s linear infinite;
 }
-[data-page="inbox-website-forms"] .wf-row__when { flex: none; font-size: .72rem; color: var(--text-3); }
-[data-page="inbox-website-forms"] .wf-row__preview,
-[data-page="inbox-website-forms"] .wf-row__service {
-  max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  font-size: .8rem; color: var(--text-2);
-}
-[data-page="inbox-website-forms"] .wf-row.is-unread .wf-row__name,
- { font-weight: 700; color: var(--text); }
-[data-page="inbox-website-forms"] .wf-row.is-unread .wf-row__when { color: var(--wf-violet); font-weight: 700; }
-[data-page="inbox-website-forms"] .wf-status { padding: 1px 8px; border-radius: 999px; font-size: .68rem; font-weight: 600; }
-[data-page="inbox-website-forms"] .wf-status--open     { background: var(--info-soft); color: var(--info); }
-[data-page="inbox-website-forms"] .wf-status--pending  { background: var(--warn-soft); color: var(--warn); }
-[data-page="inbox-website-forms"] .wf-status--resolved { background: var(--paper); color: var(--text-2); border: 1px solid var(--line); }
-[data-page="inbox-website-forms"] .wf-foot { margin: 0; padding: 9px 14px; border-top: 1px solid var(--line); font-size: .74rem; color: var(--text-3); }
+@keyframes wf-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { [data-page="inbox-website-forms"] .wf-skel span { animation: none; } }
 
-/* ---------- chat ---------- */
-
-
-/* ---------- submission detail ---------- */
-[data-page="inbox-website-forms"] .wf-row__top { display: flex; align-items: center; gap: 8px; width: 100%; }
-[data-page="inbox-website-forms"] .wf-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--wf-violet); }
-[data-page="inbox-website-forms"] .wf-row__service { font-size: .78rem; font-weight: 600; color: var(--wf-violet); }
-[data-page="inbox-website-forms"] .wf-row__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 3px; }
-[data-page="inbox-website-forms"] .wf-row__ref { font-size: .7rem; font-weight: 600; color: var(--text-2); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-[data-page="inbox-website-forms"] .wf-row.is-unread .wf-row__name { font-weight: 700; color: var(--text); }
-
-[data-page="inbox-website-forms"] .wf-detail { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-[data-page="inbox-website-forms"] .wf-detail[hidden] { display: none; }
-[data-page="inbox-website-forms"] .wf-detail__head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-[data-page="inbox-website-forms"] .wf-back { display: none; padding: 6px; }
+/* ---------- the open enquiry ---------- */
+[data-page="inbox-website-forms"] .wf-detail { padding-bottom: 16px; }
+[data-page="inbox-website-forms"] .wf-detail__head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 [data-page="inbox-website-forms"] .wf-detail__who { flex: 1; min-width: 0; }
-[data-page="inbox-website-forms"] .wf-detail__title { margin: 0; font-size: .98rem; font-weight: 700; color: var(--text); outline: none; }
-[data-page="inbox-website-forms"] .wf-detail__meta { margin: 2px 0 0; font-size: .76rem; color: var(--text-2); }
-[data-page="inbox-website-forms"] .wf-detail__body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-[data-page="inbox-website-forms"] .wf-nobooking {
-  margin: 0; padding: 8px 12px; border-radius: var(--radius-sm);
-  background: var(--warn-soft); color: var(--warn); font-size: .8rem; font-weight: 600;
-}
-[data-page="inbox-website-forms"] .wf-fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: .84rem; }
-[data-page="inbox-website-forms"] .wf-fields dt { color: var(--text-3); }
-[data-page="inbox-website-forms"] .wf-fields dd { margin: 0; color: var(--text); }
-[data-page="inbox-website-forms"] .wf-sub { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; font-size: .82rem; font-weight: 700; color: var(--text-2); }
-[data-page="inbox-website-forms"] .wf-message {
-  margin: 0; padding: 12px 14px; border-left: 3px solid var(--wf-violet); border-radius: var(--radius-sm);
-  background: var(--paper); color: var(--text); font-size: .88rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
-}
-[data-page="inbox-website-forms"] .wf-notes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
-[data-page="inbox-website-forms"] .wf-notes[hidden] { display: none; }
-[data-page="inbox-website-forms"] .wf-note { padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
-[data-page="inbox-website-forms"] .wf-note.is-demo { border-style: dashed; border-color: color-mix(in srgb, var(--amber) 70%, transparent); }
-[data-page="inbox-website-forms"] .wf-note__text { margin: 0; font-size: .84rem; color: var(--text); overflow-wrap: anywhere; }
-[data-page="inbox-website-forms"] .wf-note__meta { display: block; margin-top: 3px; font-size: .7rem; color: var(--text-3); }
-[data-page="inbox-website-forms"] .wf-note__demo { display: block; font-size: .7rem; font-weight: 700; color: var(--amber-text); }
-[data-page="inbox-website-forms"] .wf-notes__empty { margin: 0; font-size: .8rem; color: var(--text-3); }
-[data-page="inbox-website-forms"] .wf-note-form { display: flex; align-items: flex-end; gap: 10px; }
-[data-page="inbox-website-forms"] .wf-note-form__input { flex: 1; min-height: 44px; max-height: 140px; resize: vertical; }
-[data-page="inbox-website-forms"] .wf-note-hint { margin: 0; font-size: .72rem; color: var(--text-3); }
+[data-page="inbox-website-forms"] .wf-detail__who h3 { margin: 0; font-size: 1.05rem; color: var(--text); overflow-wrap: anywhere; }
+[data-page="inbox-website-forms"] .wf-detail__who span { font-size: .8rem; color: var(--text-2); }
+[data-page="inbox-website-forms"] .wf-back { display: none; }
+[data-page="inbox-website-forms"] .wf-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 0; padding: 16px; }
+[data-page="inbox-website-forms"] .wf-facts dt { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
+[data-page="inbox-website-forms"] .wf-facts dd { margin: 2px 0 0; font-size: .88rem; color: var(--text); overflow-wrap: anywhere; }
+[data-page="inbox-website-forms"] .wf-facts a { color: var(--info); }
+[data-page="inbox-website-forms"] .wf-message, [data-page="inbox-website-forms"] .wf-history { padding: 0 16px 14px; }
+[data-page="inbox-website-forms"] .wf-message h4, [data-page="inbox-website-forms"] .wf-history h4 { margin: 0 0 6px; font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
+[data-page="inbox-website-forms"] .wf-message p { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--paper); white-space: pre-wrap; font-size: .88rem; color: var(--text); overflow-wrap: anywhere; }
+[data-page="inbox-website-forms"] .wf-manage { display: grid; grid-template-columns: 200px minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 0 16px 16px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+[data-page="inbox-website-forms"] .wf-manage .field { margin: 0; }
+[data-page="inbox-website-forms"] .wf-manage .select, [data-page="inbox-website-forms"] .wf-manage .textarea { width: 100%; }
+[data-page="inbox-website-forms"] .wf-history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+[data-page="inbox-website-forms"] .wf-history li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-size: .82rem; color: var(--text); padding: 6px 0; border-bottom: 1px dashed var(--line); }
+[data-page="inbox-website-forms"] .wf-history li span { color: var(--text-3); font-size: .76rem; }
 
-/* ---------- customer details ---------- */
-[data-page="inbox-website-forms"] .wf-info__title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: .92rem; font-weight: 700; color: var(--text); }
-[data-page="inbox-website-forms"] .wf-info__list { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: .8rem; }
-[data-page="inbox-website-forms"] .wf-info__list dt { color: var(--text-3); }
-[data-page="inbox-website-forms"] .wf-info__list dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-[data-page="inbox-website-forms"] .wf-field { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; font-weight: 600; color: var(--text-2); }
-[data-page="inbox-website-forms"] .wf-info__note { margin: 0; font-size: .72rem; color: var(--text-3); }
-
-/* ---------- medium screens: details fold under the submission ---------- */
-@media (max-width: 1280px) {
-  [data-page="inbox-website-forms"] .wf-shell,
-  [data-page="inbox-website-forms"] .wf-shell:not(.has-selection) { grid-template-columns: minmax(250px, 310px) minmax(0, 1fr); }
-  /* The shell grows instead of squeezing the submission: it keeps a fixed
-     height and the details sit below it, beside the (taller) list. */
-  [data-page="inbox-website-forms"] .wf-shell.has-selection { height: auto; grid-template-rows: var(--wf-h) auto; }
-  [data-page="inbox-website-forms"] .wf-list-pane { grid-row: 1 / span 2; }
-  [data-page="inbox-website-forms"] .wf-info-pane {
-    grid-column: 2; border-left: 0; border-top: 1px solid var(--line);
-    display: grid; grid-template-columns: 1fr 1fr; align-items: start; align-content: start; overflow: visible;
-  }
-  [data-page="inbox-website-forms"] .wf-info__title,
-  [data-page="inbox-website-forms"] .wf-info__list,
-  [data-page="inbox-website-forms"] .wf-info__note { grid-column: 1 / -1; }
-  [data-page="inbox-website-forms"] .wf-info__list { grid-template-columns: auto 1fr auto 1fr; }
+/* ---------- smaller screens ---------- */
+@media (max-width: 1100px) {
+  [data-page="inbox-website-forms"] .wf-manage { grid-template-columns: 1fr; }
 }
-
-/* ---------- narrow screens: one pane at a time ---------- */
-@media (max-width: 900px) {
-  [data-page="inbox-website-forms"] .wf-shell,
-  [data-page="inbox-website-forms"] .wf-shell:not(.has-selection),
-  [data-page="inbox-website-forms"] .wf-shell.has-selection { display: block; height: auto; min-height: 0; }
-  [data-page="inbox-website-forms"] .wf-list-pane { border-right: 0; }
-  [data-page="inbox-website-forms"] .wf-list { overflow: visible; }
-  [data-page="inbox-website-forms"] .wf-detail-pane { display: none; }
-  [data-page="inbox-website-forms"] .wf-shell.has-selection .wf-list-pane { display: none; }
-  [data-page="inbox-website-forms"] .wf-shell.has-selection .wf-detail-pane { display: flex; height: calc(100vh - 200px); min-height: 440px; }
-  [data-page="inbox-website-forms"] .wf-info-pane { display: flex; max-height: none; border-top: 1px solid var(--line); }
-  [data-page="inbox-website-forms"] .wf-info__list { grid-template-columns: auto 1fr; }
-  [data-page="inbox-website-forms"] .wf-back { display: inline-flex; }
+@media (max-width: 860px) {
+  [data-page="inbox-website-forms"] .wf-layout { grid-template-columns: minmax(0, 1fr); }
+  [data-page="inbox-website-forms"] .wf-col--detail { display: none; }
+  [data-page="inbox-website-forms"] .wf-layout.is-detail-open .wf-col--list { display: none; }
+  [data-page="inbox-website-forms"] .wf-layout.is-detail-open .wf-col--detail { display: block; }
+  [data-page="inbox-website-forms"] .wf-back { display: inline-grid; }
+  [data-page="inbox-website-forms"] .wf-col--list { max-height: none; }
 }
 @media (max-width: 640px) {
-  [data-page="inbox-website-forms"] .wf-search,
-  [data-page="inbox-website-forms"] .wf-search .input { width: 100%; }
-  [data-page="inbox-website-forms"] .wf-detail__head { flex-wrap: wrap; }
-  [data-page="inbox-website-forms"] .wf-note-form { flex-direction: column; align-items: stretch; }
+  [data-page="inbox-website-forms"] .wf-facts { grid-template-columns: 1fr; }
+  [data-page="inbox-website-forms"] .wf-toolbar > .select, [data-page="inbox-website-forms"] .wf-date { flex: 1 1 calc(50% - 5px); }
+  [data-page="inbox-website-forms"] .wf-date .input { width: 100%; min-width: 0; }
+  [data-page="inbox-website-forms"] .wf-refresh span { display: none; }
 }

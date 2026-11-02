@@ -37,136 +37,74 @@
 
   <div id="page-content">
 
+    <!-- Website Forms. Filled in by js/inbox-website-forms.js from the workshop database
+         (GET /api/website-forms, migration 0016). Enquiries arrive from the public website through
+         POST /api/forms/submit. Nothing here is sample data. -->
 
-    <!-- DEMO PAGE, UI ONLY. Filled in by js/inbox-website-forms.js from the fictional sample form
-         submissions in that file. Nothing here reads or writes the workshop database or browser
-         storage, makes a request, or creates a booking, appointment, customer, vehicle, CRM task or
-         job card. Real website bookings are not read here: they are listed in Appointments. Read
-         state, assignment, status and notes change this page only until it is reloaded. -->
-
-    <div class="wf-demo" role="note">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-      <p><strong>DEMO MODE — No real website submissions are processed.</strong>
-        Every submission on this page is fictional. No booking, appointment or customer record is created, and nothing is saved.</p>
+    <div class="wf-head">
+      <span class="wf-head__icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg></span>
+      <div class="wf-head__text">
+        <h2 class="wf-head__title">Website Forms</h2>
+        <p class="page-subtitle">Booking, quote and contact enquiries sent from the taqwa.autos website.</p>
+      </div>
+      <button type="button" class="btn btn--ghost wf-refresh" id="wfRefresh"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg><span>Refresh</span></button>
     </div>
 
-    <div class="wf-channel">
-      <span class="wf-channel__logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg></span>
-      <div class="wf-channel__text">
-        <h2 class="wf-channel__title">Website Forms Inbox <span class="badge badge--neutral">Demo</span></h2>
-        <p class="page-subtitle">Service enquiries from the website contact and quote forms (sample)</p>
-      </div>
-      <span class="wf-conn" role="status"><span class="wf-conn__dot" aria-hidden="true"></span>Demo only — not connected to live forms.</span>
+    <div class="wf-chips" role="group" aria-label="Filter by status">
+      <button type="button" class="wf-chip is-active" data-status="" aria-pressed="true">All <span class="wf-chip__n" data-count="total"></span></button>
+      <button type="button" class="wf-chip" data-status="New" aria-pressed="false">New <span class="wf-chip__n" data-count="new"></span></button>
+      <button type="button" class="wf-chip" data-status="Contacted" aria-pressed="false">Contacted <span class="wf-chip__n" data-count="contacted"></span></button>
+      <button type="button" class="wf-chip" data-status="Confirmed" aria-pressed="false">Confirmed <span class="wf-chip__n" data-count="confirmed"></span></button>
+      <button type="button" class="wf-chip" data-status="Rejected" aria-pressed="false">Rejected <span class="wf-chip__n" data-count="rejected"></span></button>
     </div>
 
-    <div class="wf-toolbar" role="search" aria-label="Find submissions">
-      <div class="wf-filters" role="group" aria-label="Filter submissions">
-        <button type="button" class="wf-chip is-active" data-filter="all" aria-pressed="true">All <span class="wf-chip__n" data-count="all"></span></button>
-        <button type="button" class="wf-chip" data-filter="unread" aria-pressed="false">Unread <span class="wf-chip__n" data-count="unread"></span></button>
-        <button type="button" class="wf-chip" data-filter="Open" aria-pressed="false">Open <span class="wf-chip__n" data-count="Open"></span></button>
-        <button type="button" class="wf-chip" data-filter="Pending" aria-pressed="false">Pending <span class="wf-chip__n" data-count="Pending"></span></button>
-        <button type="button" class="wf-chip" data-filter="Resolved" aria-pressed="false">Resolved <span class="wf-chip__n" data-count="Resolved"></span></button>
-      </div>
+    <div class="wf-toolbar" role="search" aria-label="Find enquiries">
       <label class="wf-search">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-        <input type="search" class="input" id="wfSearch" placeholder="Search name, service, vehicle or reference&#8230;" aria-label="Search by customer name, service, vehicle or submission reference" autocomplete="off">
+        <input type="search" class="input" id="wfSearch" placeholder="Search name, phone, registration or message&#8230;" aria-label="Search by name, phone, registration number or message" maxlength="100" autocomplete="off">
       </label>
+      <select class="select" id="wfType" aria-label="Filter by form">
+        <option value="">All forms</option><option value="booking">Booking</option><option value="quote">Quote</option><option value="contact">Contact</option>
+      </select>
+      <label class="wf-date"><span>From</span><input type="date" class="input" id="wfFrom" aria-label="From date"></label>
+      <label class="wf-date"><span>To</span><input type="date" class="input" id="wfTo" aria-label="To date"></label>
+      <button type="button" class="btn btn--ghost btn--sm" id="wfClear" hidden>Clear filters</button>
     </div>
 
-    <section class="card wf-shell" id="wfShell" aria-label="Website form submissions">
-
-      <div class="wf-list-pane">
-        <h2 class="wf-sr-only" id="wfListTitle">Submissions</h2>
-        <div class="wf-state" id="wfLoading" role="status">
-          <span class="wf-spinner" aria-hidden="true"></span><span>Loading sample submissions&#8230;</span>
-        </div>
-        <div class="empty wf-state" id="wfError" hidden role="alert">
-          <h3>Could not load the sample submissions</h3>
-          <p>The demo data did not load. Reload the page to try again.</p>
-        </div>
-        <div class="empty wf-state" id="wfNoItems" hidden>
-          <h3>No website submissions yet</h3>
-          <p>Form submissions will appear here once the website forms are connected.</p>
-        </div>
+    <div class="wf-layout" id="wfLayout">
+      <section class="card wf-col wf-col--list" aria-labelledby="wfListTitle">
+        <h3 class="wf-sr" id="wfListTitle">Enquiries</h3>
+        <div class="wf-state" id="wfListState" role="status" aria-live="polite"></div>
         <ul class="wf-list" id="wfList" aria-labelledby="wfListTitle" hidden></ul>
-        <div class="empty wf-state" id="wfEmpty" hidden>
-          <h3>No submissions match</h3>
-          <p>Try a different filter or search.</p>
-          <button type="button" class="btn btn--ghost btn--sm" id="wfClear">Clear filters</button>
-        </div>
-        <p class="wf-foot" id="wfFoot" aria-live="polite"></p>
-      </div>
+        <div class="wf-foot" id="wfFoot" hidden><span id="wfCount"></span><button type="button" class="btn btn--ghost btn--sm" id="wfMore" hidden>Load more</button></div>
+      </section>
 
-      <div class="wf-detail-pane">
-        <div class="empty wf-state" id="wfNone">
-          <svg viewBox="0 0 24 24" width="44" height="44" fill="currentColor" aria-hidden="true"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
-          <h3>Select a submission</h3>
-          <p>Choose a submission from the list to see its details.</p>
-        </div>
-
+      <section class="card wf-col wf-col--detail" aria-label="Enquiry details">
+        <div class="wf-state wf-state--center" id="wfDetailEmpty"><p>Choose an enquiry to see its details.</p></div>
         <div class="wf-detail" id="wfDetail" hidden>
           <header class="wf-detail__head">
-            <button type="button" class="btn btn--ghost btn--sm wf-back" id="wfBack" aria-label="Back to submission list">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-            </button>
-            <div class="wf-detail__who">
-              <h3 class="wf-detail__title" id="wfDetailTitle"></h3>
-              <p class="wf-detail__meta" id="wfDetailMeta"></p>
-            </div>
-            <button type="button" class="btn btn--ghost btn--sm" id="wfMarkRead">Mark as read</button>
+            <button type="button" class="icon-btn wf-back" id="wfBack" aria-label="Back to enquiries"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+            <div class="wf-detail__who"><h3 id="wfdName"></h3><span id="wfdMeta"></span></div>
+            <span class="wf-status" id="wfdStatusBadge"></span>
           </header>
-
-          <div class="wf-detail__body">
-            <p class="wf-nobooking" role="note">Sample submission — no booking has been created.</p>
-
-            <dl class="wf-fields">
-              <dt>Reference</dt><dd id="wfRef"></dd>
-              <dt>Submitted</dt><dd id="wfWhen"></dd>
-              <dt>Form</dt><dd id="wfForm"></dd>
-              <dt>Requested service</dt><dd id="wfService"></dd>
-              <dt>Preferred date</dt><dd id="wfPreferred"></dd>
-            </dl>
-
-            <h4 class="wf-sub">Customer message</h4>
-            <blockquote class="wf-message" id="wfMessage"></blockquote>
-
-            <h4 class="wf-sub">Internal notes <span class="badge badge--neutral">Demo</span></h4>
-            <ol class="wf-notes" id="wfNotes"></ol>
-            <p class="wf-notes__empty" id="wfNotesEmpty">No notes yet.</p>
-            <form class="wf-note-form" id="wfNoteForm" autocomplete="off">
-              <label class="wf-sr-only" for="wfNote">Internal note</label>
-              <textarea class="input wf-note-form__input" id="wfNote" rows="2" maxlength="500" placeholder="Add an internal note (demo, not saved)&#8230;"></textarea>
-              <button type="submit" class="btn btn--ghost" id="wfAddNote" disabled>Add demo note</button>
-            </form>
-            <p class="wf-note-hint">Demo note — not saved, not sent. Nothing here reaches the customer or the workshop records.</p>
-          </div>
+          <dl class="wf-facts" id="wfdFacts"></dl>
+          <div class="wf-message" id="wfdMessageWrap"><h4>Message</h4><p id="wfdMessage"></p></div>
+          <form class="wf-manage" id="wfManage" novalidate>
+            <div class="field">
+              <label for="wfdStatus">Status</label>
+              <select class="select" id="wfdStatus" name="status"><option>New</option><option>Contacted</option><option>Confirmed</option><option>Rejected</option></select>
+            </div>
+            <div class="field">
+              <label for="wfdNotes">Internal notes</label>
+              <textarea class="textarea" id="wfdNotes" name="notes" rows="4" maxlength="2000" placeholder="Visible to staff only"></textarea>
+              <span class="field__error" data-err="manage"></span>
+            </div>
+            <button type="submit" class="btn btn--primary" id="wfdSave">Save</button>
+          </form>
+          <div class="wf-history"><h4>History</h4><ol id="wfdHistory"></ol></div>
         </div>
-      </div>
-
-      <aside class="wf-info-pane" id="wfInfo" aria-label="Customer and vehicle details" hidden>
-        <h3 class="wf-info__title">Customer details <span class="badge badge--neutral">Sample</span></h3>
-        <dl class="wf-info__list">
-          <dt>Name</dt><dd id="wfInfoName"></dd>
-          <dt>Phone</dt><dd id="wfInfoPhone"></dd>
-          <dt>Email</dt><dd id="wfInfoEmail"></dd>
-          <dt>Vehicle</dt><dd id="wfInfoVehicle"></dd>
-          <dt>Year</dt><dd id="wfInfoYear"></dd>
-          <dt>Registration</dt><dd id="wfInfoReg"></dd>
-        </dl>
-        <label class="wf-field">
-          <span>Assigned to</span>
-          <select class="input" id="wfAssign" aria-label="Assign staff (demo)"></select>
-        </label>
-        <label class="wf-field">
-          <span>Status</span>
-          <select class="input" id="wfStatus" aria-label="Submission status (demo)">
-            <option>Open</option><option>Pending</option><option>Resolved</option>
-          </select>
-        </label>
-        <p class="wf-info__note">Demo only: changes stay on this page until it is reloaded. No booking or customer is created.</p>
-      </aside>
-
-    </section>
+      </section>
+    </div>
 
   </div>
 

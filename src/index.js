@@ -131,6 +131,9 @@ import { messenger, MESSENGER_ROUTES } from './routes/messenger.js';
 // verification) and the staff inbox routes (behind the gate).
 import { whatsappWebhook } from './routes/whatsapp-webhook.js';
 import { whatsapp, WHATSAPP_ROUTES } from './routes/whatsapp.js';
+// Social Inbox › Website Forms (0016): the website's public submission endpoint
+// (validated, rate-limited, CORS for the website only) and the staff routes.
+import { publicFormSubmit, listWebsiteForms, getWebsiteForm, updateWebsiteForm } from './routes/website-forms.js';
 import { getWebsiteBookings } from './routes/website-bookings.js';
 
 /**
@@ -257,6 +260,11 @@ const COLLECTIONS = {
   'activity-log': {
     list: listActivity, detail: getActivity,
   },
+  // No create (enquiries arrive through POST /api/forms/submit) and no remove:
+  // an unwanted enquiry is Rejected and kept.
+  'website-forms': {
+    list: listWebsiteForms, detail: getWebsiteForm, update: updateWebsiteForm,
+  },
   tools: {
     list: listTools, detail: getTool,
     create: createTool, update: updateTool,
@@ -294,6 +302,9 @@ const ROUTES = [
   // Meta's signature itself (routes/whatsapp-webhook.js).
   'GET /api/webhooks/whatsapp',
   'POST /api/webhooks/whatsapp',
+  // The website's form endpoint: public, validated and rate-limited itself
+  // (routes/website-forms.js).
+  'POST /api/forms/submit',
   'GET /api/settings',
   'PUT /api/settings',
   // Signing in and out. Public, necessarily: a browser with no credential
@@ -447,6 +458,10 @@ export default {
     // signature on every delivery (POST); an unsigned body is never read.
     if (url.pathname === '/api/webhooks/messenger') return messengerWebhook(request, env, url, ctx);
     if (url.pathname === '/api/webhooks/whatsapp') return whatsappWebhook(request, env, url);
+
+    // Public, and dispatched before the gate: the website's visitors have no
+    // session. Protected instead by validation, CORS, a honeypot and a rate limit.
+    if (url.pathname === '/api/forms/submit') return publicFormSubmit(request, env);
 
     // The Messenger inbox: conversations, messages, replies. Behind the gate.
     if (url.pathname === '/api/messenger' || url.pathname.startsWith('/api/messenger/')) {

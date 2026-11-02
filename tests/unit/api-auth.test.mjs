@@ -233,7 +233,8 @@ console.log('\n-- 3. The whole route surface, derived from the registry --');
   // unsigned delivery before reading anything.
   const PUBLIC = new Set(['POST /api/session', 'DELETE /api/session', 'GET /api/session',
                           'GET /api/health', 'GET /api/webhooks/messenger', 'POST /api/webhooks/messenger',
-                          'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp']);
+                          'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp',
+                          'POST /api/forms/submit']);
   const mutations = routes.filter(
     (r) => /^(POST|PUT|PATCH|DELETE) /.test(r) && !PUBLIC.has(r));
   ok_('the registry really does advertise mutations', mutations.length >= 30, mutations.length);
