@@ -28,8 +28,8 @@ const App = (() => {
   /* Social Inbox, shown after Inventory: exactly four entries. Facebook is
      connected to the real Page (Messenger, migration 0014) and All
      Conversations lists its conversations; WhatsApp is connected to the
-     WhatsApp Business Cloud API (migration 0015); Website Forms is still a
-     DEMO page (sample data in memory, nothing connected, sent or
+     WhatsApp Business Cloud API (migration 0015); Website Forms receives the
+     website's enquiries (migration 0016) (sample data in memory, nothing connected, sent or
      booked). Website
      bookings are listed in Appointments, and Facebook page comments are part
      of the Facebook inbox, so neither has an entry of its own here. Every
@@ -45,8 +45,8 @@ const App = (() => {
       title: 'Real Facebook Messenger conversations with the workshop\'s Page.', icon: 'M24 12.07C24 5.41 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.8-4.7 4.54-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.5c-1.5 0-1.96.93-1.96 1.89v2.26h3.32l-.53 3.5h-2.8V24C19.62 23.1 24 18.1 24 12.07z' },
     { key: 'inbox-whatsapp', label: 'WhatsApp', href: 'pages/inbox-whatsapp.html', hint: 'Business',
       title: 'Real WhatsApp Business conversations (Cloud API).', icon: 'M12 2C6.48 2 2 6.03 2 11c0 2.84 1.46 5.36 3.74 7L5 22l4.27-2.18c.87.12 1.79.18 2.73.18 5.52 0 10-4.03 10-9S17.52 2 12 2z' },
-    { key: 'inbox-website-forms', label: 'Website Forms', href: 'pages/inbox-website-forms.html', hint: 'Demo',
-      title: 'Sample website form submissions only. Not connected; no booking is created.', icon: 'M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z' },
+    { key: 'inbox-website-forms', label: 'Website Forms', href: 'pages/inbox-website-forms.html', hint: 'Website',
+      title: 'Booking, quote and contact enquiries sent from the taqwa.autos website.', icon: 'M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z' },
   ];
   // Whether Social Inbox was left open, so it does not snap shut on every page
   // change (each one is a full document load). Display state only.
@@ -145,7 +145,7 @@ const App = (() => {
     'inbox-conversations': 'All Conversations',
     'inbox-whatsapp': 'WhatsApp',
     'inbox-facebook': 'Facebook Messenger',
-    'inbox-website-forms': 'Website Forms Inbox',
+    'inbox-website-forms': 'Website Forms',
     'equipment-inventory': 'Equipment Inventory', 'maintenance-repairs': 'Maintenance & Repairs',
     'asset-assignment': 'Asset Assignment', 'asset-history': 'Asset History', 'asset-reports': 'Asset Reports'
   };

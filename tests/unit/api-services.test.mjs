@@ -392,6 +392,8 @@ console.log('\n-- 11. Routing --');
     'POST /api/leave-requests/:id/approve', 'POST /api/leave-requests/:id/reject',
     // 0012: the activity log is read-only; the Worker writes its entries itself.
     'GET /api/activity-log', 'GET /api/activity-log/:id',
+    // 0016: website enquiries are read and updated by staff; they arrive through the public form endpoint.
+    'GET /api/website-forms', 'GET /api/website-forms/:id', 'PUT /api/website-forms/:id',
     // 0013: tools are registered and edited, and retired by an administrator; never deleted.
     'GET /api/tools', 'POST /api/tools', 'GET /api/tools/:id', 'PUT /api/tools/:id', 'POST /api/tools/:id/retire',
     // 0014: the Messenger inbox, then Meta's public webhook.
@@ -400,6 +402,7 @@ console.log('\n-- 11. Routing --');
     // 0015: the WhatsApp inbox, then the Cloud API's public webhook.
     'GET /api/whatsapp/conversations', 'GET /api/whatsapp/conversations/:id', 'GET /api/whatsapp/conversations/:id/messages', 'POST /api/whatsapp/conversations/:id/reply', 'POST /api/whatsapp/conversations/:id/read', 'POST /api/whatsapp/conversations/:id/unread', 'PUT /api/whatsapp/conversations/:id/status',
     'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp',
+    'POST /api/forms/submit',
     // Settings is a singleton: a read and a write, and no /:id — there is
     // no create or delete for a row that is permanently id 1.
     'GET /api/settings', 'PUT /api/settings',
@@ -410,7 +413,7 @@ console.log('\n-- 11. Routing --');
   const res = await call('/api/nope', { DB: stubDB({ rows: [] }) });
   const body = await res.json();
   check('unknown collection -> 404', res.status, 404);
-  check('404 advertises every route', body.error.available.length, 135);
+  check('404 advertises every route', body.error.available.length, 139);
 }
 
 console.log(`\nGET /api/services unit: ${pass} passed, ${fail} failed`);

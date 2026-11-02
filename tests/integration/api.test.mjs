@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 135 routes', routes.length === 135, routes);
+  t('advertises 139 routes', routes.length === 139, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('55 GET, 49 POST, 20 PUT, 11 DELETE',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 55, POST: 49, PUT: 20, DELETE: 11 }), byMethod);
+    t('57 GET, 50 POST, 21 PUT, 11 DELETE',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 57, POST: 50, PUT: 21, DELETE: 11 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));
@@ -4646,7 +4646,7 @@ sec('21. Authentication: every mutation is gated, against the real Worker');
     // The Messenger webhook (0014) is public by necessity -- Meta has no
     // session -- and is protected by Meta's App Secret signature instead
     // (tests/unit/api-messenger.test.mjs proves an unsigned POST is refused).
-    const SESSION_ROUTES = new Set(['POST /api/session', 'DELETE /api/session', 'POST /api/webhooks/messenger', 'POST /api/webhooks/whatsapp']);
+    const SESSION_ROUTES = new Set(['POST /api/session', 'DELETE /api/session', 'POST /api/webhooks/messenger', 'POST /api/webhooks/whatsapp', 'POST /api/forms/submit']);
     const mutations = advertised.filter(
       (r) => /^(POST|PUT|PATCH|DELETE) /.test(r) && !SESSION_ROUTES.has(r));
     t('the registry advertises the mutations to check', mutations.length >= 30, mutations.length);

@@ -58,3 +58,9 @@ WHATSAPP_WEBHOOK_VERIFY_TOKEN=
 # Optional: only if WhatsApp is set up in a DIFFERENT Meta app from Messenger.
 # When unset, META_APP_SECRET verifies WhatsApp deliveries too.
 # WHATSAPP_APP_SECRET=
+
+# ---- Website Forms (migration 0016) -----------------------------------------
+# Optional. Extra browser origins (comma-separated) allowed to POST to
+# /api/forms/submit, besides https://taqwa.autos and https://www.taqwa.autos --
+# e.g. a local copy of the website during development.
+# FORMS_ALLOWED_ORIGINS=http://localhost:4321
