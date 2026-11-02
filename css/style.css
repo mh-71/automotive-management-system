@@ -283,9 +283,10 @@ a.nav__sub:hover { background: rgba(255, 255, 255, .06); color: #fff; text-decor
 .nav__sub--off { color: #8592a3; cursor: default; }
 .nav__sub--off svg { opacity: .55; }
 
-/* Notifications Center: a top-level link with an amber count badge on the right. The count is a
-   fixed design placeholder. */
+/* Notifications Center: a top-level link with an amber count badge on the right: the signed-in
+   user's unread count (js/app.js), hidden when there is none. */
 .nav__notify > span:not(.nav__count) { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.nav__count[hidden] { display: none; }
 .nav__count {
   margin-left: auto;
   flex: none;

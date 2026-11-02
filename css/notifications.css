@@ -1,23 +1,29 @@
 /* ============================================================
-   notifications.css — Notifications Center (demo page, UI only)
+   notifications.css — Notifications Center
    ------------------------------------------------------------
    Loaded only by pages/notifications.html, and every rule is also
    scoped to [data-page="notifications"], so nothing here can reach
    another page. The page is built from the shared components (stat
    cards, card, badges, inputs, buttons, empty state); this file
    only arranges them and styles what exists on this page alone: the
-   header, the filter pills, the search field and the notification rows.
+   header, the filter pills, the category and search fields, the
+   notification rows and the loading / empty / error states.
    ============================================================ */
 
 /* ---------- palette (built on the shared tokens; follows light and dark) ---------- */
 [data-page="notifications"] {
   --ntf-violet: #7c5cd6;
 }
-[data-page="notifications"] .ntf-tone--workshop  { background: var(--info-soft); color: var(--info); }
-[data-page="notifications"] .ntf-tone--finance   { background: var(--good-soft); color: var(--good); }
-[data-page="notifications"] .ntf-tone--staff     { background: color-mix(in srgb, var(--ntf-violet) 16%, var(--surface)); color: var(--ntf-violet); }
-[data-page="notifications"] .ntf-tone--system    { background: color-mix(in srgb, var(--text-3) 16%, var(--surface)); color: var(--text-2); }
-[data-page="notifications"] .ntf-tone--important { background: var(--bad-soft); color: var(--bad); }
+[data-page="notifications"] .ntf-tone--workshop    { background: var(--info-soft); color: var(--info); }
+[data-page="notifications"] .ntf-tone--appointment { background: var(--info-soft); color: var(--info); }
+[data-page="notifications"] .ntf-tone--finance     { background: var(--good-soft); color: var(--good); }
+[data-page="notifications"] .ntf-tone--customer    { background: var(--amber-soft); color: var(--amber-text); }
+[data-page="notifications"] .ntf-tone--inventory   { background: var(--amber-soft); color: var(--amber-text); }
+[data-page="notifications"] .ntf-tone--enquiry,
+[data-page="notifications"] .ntf-tone--staff       { background: color-mix(in srgb, var(--ntf-violet) 16%, var(--surface)); color: var(--ntf-violet); }
+[data-page="notifications"] .ntf-tone--followup,
+[data-page="notifications"] .ntf-tone--system      { background: color-mix(in srgb, var(--text-3) 16%, var(--surface)); color: var(--text-2); }
+[data-page="notifications"] .ntf-tone--important   { background: var(--bad-soft); color: var(--bad); }
 
 [data-page="notifications"] .ntf-sr-only {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
@@ -27,7 +33,9 @@
 /* ---------- header ---------- */
 [data-page="notifications"] .ntf-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
 [data-page="notifications"] .ntf-head__icon { flex: none; display: grid; place-items: center; color: var(--amber); }
-[data-page="notifications"] .ntf-head__text { min-width: 0; }
+[data-page="notifications"] .ntf-head__text { flex: 1; min-width: 0; }
+[data-page="notifications"] .ntf-head__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+[data-page="notifications"] .ntf-refresh { display: inline-flex; align-items: center; gap: 6px; }
 [data-page="notifications"] .ntf-head__title {
   display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
   margin: 0; font-size: 1.35rem; font-weight: 700; color: var(--text);
@@ -63,7 +71,9 @@
 [data-page="notifications"] .ntf-filter:hover { color: var(--text); border-color: var(--text-3); }
 [data-page="notifications"] .ntf-filter.is-active { background: var(--amber); border-color: var(--amber); color: #241a05; }
 [data-page="notifications"] .ntf-filter:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-[data-page="notifications"] .ntf-search { position: relative; flex: 0 1 320px; min-width: 220px; }
+[data-page="notifications"] .ntf-toolbar__right { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 0 1 560px; min-width: 0; }
+[data-page="notifications"] .ntf-category { flex: 0 1 220px; min-width: 0; height: 40px; }
+[data-page="notifications"] .ntf-search { position: relative; flex: 1 1 260px; min-width: 200px; }
 [data-page="notifications"] .ntf-search svg {
   position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none;
 }
@@ -102,19 +112,46 @@
 [data-page="notifications"] .ntf-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--info); }
 [data-page="notifications"] .ntf-state { min-width: 92px; font-size: .76rem; color: var(--text-3); text-align: center; }
 [data-page="notifications"] .ntf-read { min-width: 92px; justify-content: center; }
-[data-page="notifications"] .ntf-foot { padding: 12px 20px; font-size: .8rem; color: var(--text-3); }
+[data-page="notifications"] .ntf-item__side .ntf-open { min-width: 64px; justify-content: center; }
+[data-page="notifications"] .ntf-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 20px; font-size: .8rem; color: var(--text-3);
+}
+[data-page="notifications"] .ntf-foot:has(#ntfCount:empty):has(#ntfMore[hidden]) { display: none; }
+
+/* ---------- new arrivals, loading and error ---------- */
+[data-page="notifications"] .ntf-new {
+  display: block; width: 100%; margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--info);
+  border-radius: var(--radius-sm, 10px); background: var(--info-soft); color: var(--info);
+  font: inherit; font-size: .86rem; font-weight: 600; text-align: center; cursor: pointer;
+}
+[data-page="notifications"] .ntf-new:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+[data-page="notifications"] .ntf-skel { display: grid; gap: 12px; padding: 18px 20px; }
+[data-page="notifications"] .ntf-skel span {
+  display: block; height: 64px; border-radius: 12px;
+  background: linear-gradient(90deg, var(--paper) 25%, color-mix(in srgb, var(--line) 60%, var(--paper)) 50%, var(--paper) 75%);
+  background-size: 200% 100%; animation: ntf-shimmer 1.2s linear infinite;
+}
+@keyframes ntf-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { [data-page="notifications"] .ntf-skel span { animation: none; } }
+[data-page="notifications"] .ntf-error { padding: 36px 20px; text-align: center; color: var(--text-2); font-size: .88rem; border-bottom: 1px solid var(--line); }
+[data-page="notifications"] .ntf-error strong { display: block; margin-bottom: 6px; color: var(--text); font-size: .98rem; }
+[data-page="notifications"] .ntf-error p { margin: 0 0 14px; }
 [data-page="notifications"] .ntf-empty { border-bottom: 1px solid var(--line); }
-[data-page="notifications"] .ntf-empty[hidden],
-[data-page="notifications"] .ntf-list[hidden] { display: none; }
+[data-page="notifications"] [hidden] { display: none !important; }
 
 /* ---------- smaller screens ---------- */
 @media (max-width: 1000px) {
-  [data-page="notifications"] .ntf-search { flex: 1 1 100%; }
+  [data-page="notifications"] .ntf-toolbar__right { flex: 1 1 100%; }
 }
 @media (max-width: 640px) {
   [data-page="notifications"] .ntf-stats { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   [data-page="notifications"] .ntf-head__title { font-size: 1.2rem; }
-  [data-page="notifications"] .ntf-search { min-width: 0; }
+  [data-page="notifications"] .ntf-search { min-width: 0; flex-basis: 100%; }
+  [data-page="notifications"] .ntf-category { flex: 1 1 100%; }
+  [data-page="notifications"] .ntf-head { flex-wrap: wrap; }
+  [data-page="notifications"] .ntf-head__actions { width: 100%; }
+  [data-page="notifications"] .ntf-head__actions .btn { flex: 1 1 0; justify-content: center; }
   [data-page="notifications"] .ntf-item { grid-template-columns: auto minmax(0, 1fr); gap: 10px 12px; padding: 14px 14px 14px 11px; }
   [data-page="notifications"] .ntf-item__icon { width: 38px; height: 38px; border-radius: 10px; }
   [data-page="notifications"] .ntf-item__side { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; gap: 10px; }

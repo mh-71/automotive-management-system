@@ -69,12 +69,14 @@ const App = (() => {
   // On a CRM page the group is always open, so the current entry is visible.
   const CRM_OPEN_KEY = 'taqwa_nav_crm_open';
 
-  /* Notifications Center, shown after Customer CRM. It links to the demo page
-     (pages/notifications.html, sample data only). There is no notification
-     data yet: the count is a fixed design placeholder -- nothing is fetched
-     or counted. */
+  /* Notifications Center, shown after Customer CRM. The badge is the signed-in
+     user's unread count from GET /api/notifications/unread-count: drawn empty
+     and hidden, filled once the shell knows the API is live, refreshed every
+     minute while the tab is visible, and at once when the Notifications page
+     changes it (the 'taqwa:notifications-unread' event). Hidden at 0, and
+     never shown without the API -- no number is ever made up. */
   const NOTIFY_ICON = 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z';
-  const NOTIFY_PLACEHOLDER_COUNT = 3;
+  const NOTIFY_POLL_MS = 60000;
 
   /* Workshop Assets, shown after Customer CRM and before Notifications Center:
      an expandable group drawn like Customer CRM and Staff Management. Every
@@ -146,6 +148,7 @@ const App = (() => {
     'inbox-whatsapp': 'WhatsApp',
     'inbox-facebook': 'Facebook Messenger',
     'inbox-website-forms': 'Website Forms',
+    notifications: 'Notifications Center',
     'equipment-inventory': 'Equipment Inventory', 'maintenance-repairs': 'Maintenance & Repairs',
     'asset-assignment': 'Asset Assignment', 'asset-history': 'Asset History', 'asset-reports': 'Asset Reports'
   };
@@ -441,7 +444,7 @@ const App = (() => {
     };
     const notifyHtml = () => {
       const active = page === 'notifications';
-      return `<a class="nav__link nav__notify${active ? ' is-active' : ''}" id="navNotify" href="${root}pages/notifications.html"${active ? ' aria-current="page"' : ''}>${icon(NOTIFY_ICON)}<span>Notifications Center</span><span class="nav__count" title="The count is a design placeholder.">${NOTIFY_PLACEHOLDER_COUNT}</span></a>`;
+      return `<a class="nav__link nav__notify${active ? ' is-active' : ''}" id="navNotify" href="${root}pages/notifications.html"${active ? ' aria-current="page"' : ''}>${icon(NOTIFY_ICON)}<span>Notifications Center</span><span class="nav__count" id="navNotifyCount" hidden></span></a>`;
     };
     const navHtml = NAV.map(item => linkHtml(item)
       + (item.key === STAFF_AFTER ? staffHtml() : '')
@@ -748,6 +751,39 @@ const App = (() => {
    * the footer, the sign-out button and the business name all depend on
    * which source hydration settled on. Then show the page's content.
    */
+  /** Show an unread count on the Notifications Center link (hidden at 0 or when unknown). */
+  function setNotifyCount(n) {
+    const badge = document.getElementById('navNotifyCount');
+    if (!badge) return;
+    const count = Number(n);
+    if (!Number.isFinite(count) || count <= 0) { badge.hidden = true; badge.textContent = ''; badge.removeAttribute('title'); return; }
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.title = `${count} unread notification${count === 1 ? '' : 's'}`;
+    badge.setAttribute('aria-label', badge.title);
+    badge.hidden = false;
+  }
+
+  let notifyTimer = null;
+  async function refreshNotifyCount() {
+    if (!Storage.isApi() || (typeof document !== 'undefined' && document.hidden)) return;
+    try {
+      const res = await Api.get('/notifications/unread-count');
+      if (res && res.ok && res.data) setNotifyCount(res.data.unread);
+    } catch (e) { /* the badge simply keeps its last value */ }
+  }
+  // Optional: whatever happens here must never stop the page from showing.
+  function startNotifyBadge() {
+    if (!Storage.isApi() || notifyTimer || typeof Api === 'undefined' || typeof setInterval !== 'function') return;
+    try {
+      refreshNotifyCount();
+      notifyTimer = setInterval(refreshNotifyCount, NOTIFY_POLL_MS);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshNotifyCount(); });
+    } catch (e) { /* no badge, nothing else affected */ }
+  }
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('taqwa:notifications-unread', (e) => setNotifyCount(e && e.detail && e.detail.unread));
+  }
+
   function completeShell() {
     const source = dataSource();
     const foot = document.getElementById('dataSource');
@@ -768,6 +804,7 @@ const App = (() => {
     const tagline = document.querySelector('.topbar__user-text span');
     if (tagline) tagline.textContent = `${Storage.getSettings().businessName.split(' ')[0]} ASC`;
     revealContent();
+    startNotifyBadge();
   }
 
   /**
