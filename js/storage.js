@@ -147,6 +147,12 @@ const Storage = (() => {
   let hydration = null;          // the in-flight hydrate() promise
 
   const isApi = () => mode === 'api';
+  /* Offline (Phase 1): the encrypted, read-only copy saved on this computer
+     (js/offline.js) is open. Reads come from it; every write is refused. */
+  const isOffline = () => mode === 'offline';
+  let offlineSavedAt = null;
+  const OFFLINE_MESSAGE = 'You are offline. This is a read-only copy: changes can be saved when the internet is back.';
+  const offlineRefusal = () => ({ ok: false, code: 'offline', message: OFFLINE_MESSAGE });
 
   /* ---------- low-level helpers ---------- */
 
@@ -174,7 +180,7 @@ const Storage = (() => {
 
   /** Get all records of a collection (always returns an array). */
   function getData(collection) {
-    if (isApi()) return cache[collection] || [];
+    if (isApi() || isOffline()) return cache[collection] || [];
     if (isApiOnly(collection)) return [];
     if (usesBrowserStore()) return read(collection) || [];
     return [];                      // locked: nothing has been read, so nothing is shown
@@ -281,6 +287,7 @@ const Storage = (() => {
    */
   async function create(collection, record) {
     if (isLocked()) return lockedRefusal();
+    if (isOffline()) return offlineRefusal();
     if (!isApi() && isApiOnly(collection)) return apiOnlyRefusal();
     if (!isApi()) {
       const saved = addData(collection, record);
@@ -295,6 +302,7 @@ const Storage = (() => {
 
   async function update(collection, id, changes) {
     if (isLocked()) return lockedRefusal();
+    if (isOffline()) return offlineRefusal();
     if (!isApi() && isApiOnly(collection)) return apiOnlyRefusal();
     if (!isApi()) {
       const saved = updateData(collection, id, changes);
@@ -309,6 +317,7 @@ const Storage = (() => {
 
   async function remove(collection, id) {
     if (isLocked()) return lockedRefusal();
+    if (isOffline()) return offlineRefusal();
     if (!isApi() && isApiOnly(collection)) return apiOnlyRefusal();
     if (!isApi()) {
       const gone = deleteData(collection, id);
@@ -335,6 +344,7 @@ const Storage = (() => {
    */
   async function action(collection, id, name, body = {}, refresh = []) {
     if (isLocked()) return lockedRefusal();
+    if (isOffline()) return offlineRefusal();
     if (!isApi()) {
       return { ok: false, code: 'no_api', message: 'This action needs the backend.' };
     }
@@ -399,7 +409,7 @@ const Storage = (() => {
    * carries only the fields the form actually holds.
    */
   function getSettings() {
-    const stored = isApi() ? cachedSettings
+    const stored = isApi() || isOffline() ? cachedSettings
       : usesBrowserStore() ? read('settings')
       : null;                       // locked: the browser's display defaults only
     return { ...DEFAULT_SETTINGS, ...(stored || {}) };
@@ -418,6 +428,7 @@ const Storage = (() => {
    */
   async function putSettings(settings) {
     if (isLocked()) return lockedRefusal();
+    if (isOffline()) return offlineRefusal();
     if (!isApi()) {
       return saveSettings(settings)
         ? { ok: true, record: getSettings() }
@@ -588,6 +599,7 @@ const Storage = (() => {
     if (!isApiOnly(collection)) {
       return { ok: false, code: 'not_on_demand', message: `${collection} is loaded with the other collections.` };
     }
+    if (isOffline()) return offlineRefusal();
     if (!isApi()) return apiOnlyRefusal();
     return reload(collection, query);
   }
@@ -601,6 +613,7 @@ const Storage = (() => {
     if (!isApiOnly(collection)) {
       return { ok: false, code: 'not_on_demand', message: `${collection} is loaded with the other collections.` };
     }
+    if (isOffline()) return offlineRefusal();
     if (!isApi()) return apiOnlyRefusal();
     const res = await Api.get(`/${API_PATHS[collection]}/${encodeURIComponent(id)}`);
     if (!res.ok) return res;
@@ -618,6 +631,7 @@ const Storage = (() => {
     if (!isApiOnly(collection)) {
       return { ok: false, code: 'not_on_demand', message: `${collection} is loaded with the other collections.` };
     }
+    if (isOffline()) return offlineRefusal();
     if (!isApi()) return apiOnlyRefusal();
     const qs = new URLSearchParams(query).toString();
     const res = await Api.get(`/${API_PATHS[collection]}${qs ? `?${qs}` : ''}`);
@@ -629,6 +643,7 @@ const Storage = (() => {
 
   /** Re-read one collection from the server. Used after a transaction. */
   async function reload(collection, query = null) {
+    if (isOffline()) return offlineRefusal();
     if (!isApi()) return { ok: false, code: 'no_api' };
     const res = await fetchAll(collection, query);
     if (!res.ok) return res;
@@ -676,13 +691,13 @@ const Storage = (() => {
       // timeout, and the session answer is never acted on without it.
       const asking = Api.session();
       const probe = await Api.probe();
-      if (!probe.ok) return { mode: 'local', reason: probe.code };
+      if (!probe.ok) return (await offlinePath(probe.code)) || { mode: 'local', reason: probe.code };
 
       // The Worker is up. Are we allowed to read it? Asking /api/session is
       // how that is answered without firing eleven requests that would all
       // come back 401.
       const who = await asking;
-      if (!who.ok) return { mode: 'local', reason: who.code || 'network_error' };
+      if (!who.ok) return (await offlinePath(who.code || 'network_error')) || { mode: 'local', reason: who.code || 'network_error' };
       if (!who.authenticated) {
         mode = 'locked';
         return { mode: 'locked', canSignIn: who.passphrase, accountSignIn: who.accounts, sharedPassphrase: who.sharedPassphrase !== false };
@@ -737,6 +752,91 @@ const Storage = (() => {
       return { mode: 'api', counts: Object.fromEntries(COLLECTIONS.map(c => [c, cache[c].length])) };
     })().then(result => { settled = true; outcome = result; return result; });
     return hydration;
+  }
+
+  /* ---------- offline (Phase 1): the encrypted read-only copy ---------- */
+
+  const OFFLINE_SESSION_KEY = 'taqwa_offline_session';
+  const OFFLINE_SESSION_HOURS = 12;
+  const OFFLINE_SAVE_EVERY_MS = 2 * 60 * 1000;
+  const offlineReady = () => typeof Offline !== 'undefined' && Offline.supported();
+  const ss = {
+    get(k) { try { return JSON.parse(sessionStorage.getItem(k)); } catch (e) { return null; } },
+    set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
+    del(k) { try { sessionStorage.removeItem(k); } catch (e) { /* private mode */ } },
+  };
+
+  function applyOffline(opened) {
+    const d = opened.data || {};
+    COLLECTIONS.forEach(c => { cache[c] = Array.isArray(d.collections && d.collections[c]) ? d.collections[c] : []; });
+    cachedSettings = d.settings || null;
+    signedInAccount = { id: opened.user.accountId, username: opened.user.username, name: opened.user.name, staffId: opened.user.staffId, role: opened.user.role };
+    grant = { fullAccess: d.fullAccess === true, permissions: new Set(Array.isArray(d.permissions) ? d.permissions : []) };
+    denied.clear();
+    (Array.isArray(d.denied) ? d.denied : []).forEach(c => denied.add(c));
+    offlineSavedAt = d.savedAt || null;
+    mode = 'offline';
+  }
+
+  /**
+   * The server cannot be reached. On the deployed app (same origin) that
+   * never means "use this browser's demo store": it means the encrypted copy,
+   * opened again for this tab if it was already unlocked, or a request to
+   * unlock it. Anywhere else (a cross-origin dev setup) the old fallback stays.
+   */
+  async function offlinePath(reason) {
+    if (!Api.sameOrigin || !offlineReady()) return null;
+    const session = ss.get(OFFLINE_SESSION_KEY);
+    if (session && session.accountId && session.key && Date.now() - Number(session.at) < OFFLINE_SESSION_HOURS * 3600000) {
+      const opened = await Offline.openWithSession(session.accountId, session.key);
+      if (opened.ok) { applyOffline(opened); return { mode: 'offline', reason, savedAt: offlineSavedAt }; }
+    }
+    ss.del(OFFLINE_SESSION_KEY);
+    mode = 'locked';
+    return { mode: 'locked', offline: true, reason, hasCopies: await Offline.hasCopies() };
+  }
+
+  /** Open the saved copy with a username / e-mail / Staff ID and password. */
+  async function unlockOffline(identifier, password) {
+    if (!offlineReady()) return { ok: false, code: 'unsupported', message: 'This browser cannot open an offline copy.' };
+    const opened = await Offline.unlock(identifier, password);
+    if (!opened.ok) return opened;
+    applyOffline(opened);
+    ss.set(OFFLINE_SESSION_KEY, { accountId: opened.user.accountId, key: opened.sessionKey, at: Date.now() });
+    return { ok: true, savedAt: offlineSavedAt };
+  }
+
+  /** Close the offline copy in this tab. */
+  function lockOffline() { ss.del(OFFLINE_SESSION_KEY); }
+
+  /**
+   * Online: refresh this person's encrypted copy with what was just read
+   * (at most every two minutes per tab). Only for a personal account that has
+   * signed in on this computer with its password; the passphrase has no
+   * person to protect a copy for, so it gets none.
+   */
+  async function saveOfflineCopy({ force = false } = {}) {
+    if (!isApi() || !offlineReady() || !signedInAccount || signedInAccount.passwordChangeRequired || !grant) return false;
+    const last = ss.get('taqwa_offline_saved_at');
+    if (!force && last && last.accountId === signedInAccount.id && Date.now() - Number(last.at) < OFFLINE_SAVE_EVERY_MS) return false;
+    try {
+      const saved = await Offline.saveSnapshot(signedInAccount.id, {
+        collections: Object.fromEntries(COLLECTIONS.map(c => [c, cache[c] || []])),
+        settings: cachedSettings, permissions: [...grant.permissions], fullAccess: grant.fullAccess, denied: [...denied],
+      });
+      if (saved) ss.set('taqwa_offline_saved_at', { accountId: signedInAccount.id, at: Date.now() });
+      return saved;
+    } catch (e) {
+      console.error('The offline copy could not be saved:', e && e.message);
+      return false;
+    }
+  }
+
+  /** After an online sign-in with a password: let this person open a copy here later. */
+  async function enrollOffline(password, typedIdentifier) {
+    if (!offlineReady() || !signedInAccount || !password) return false;
+    try { return await Offline.enroll(signedInAccount, password, typedIdentifier); }
+    catch (e) { console.error('Offline access could not be set up:', e && e.message); return false; }
   }
 
   /* ---------- signing in and out ---------- */
@@ -803,6 +903,7 @@ const Storage = (() => {
     cachedSettings = null;
     signedInAccount = null;
     grant = null;
+    ss.del(OFFLINE_SESSION_KEY);
     denied.clear();
     mode = 'locked';
     hydration = null;
@@ -876,6 +977,8 @@ const Storage = (() => {
     get fullAccess() { return !!(grant && grant.fullAccess); },
     get permissions() { return grant ? [...grant.permissions] : null; },
     can, isDenied, blockPage,
+    isOffline, unlockOffline, lockOffline, saveOfflineCopy, enrollOffline, OFFLINE_MESSAGE,
+    get offlineSavedAt() { return offlineSavedAt; },
     isApi, isLocked
   };
 })();

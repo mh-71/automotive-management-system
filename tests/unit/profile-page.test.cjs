@@ -46,7 +46,7 @@ ok('"Edit in Settings" links to the existing Settings page', editLinks.length >=
 /* ---------- script order and CSP ---------- */
 const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 check('scripts: shell scripts, then profile.js', scripts,
-  ['../js/api.js', '../js/seed-data.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/profile.js']);
+  ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/profile.js']);
 ok('the shell-drawn marker comes after every script',
   html.indexOf('id="shell-drawn"') > html.lastIndexOf('<script src='));
 ok('no inline event handlers (the CSP would block them)', !/\son[a-z]+\s*=/i.test(html));

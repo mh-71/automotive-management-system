@@ -194,7 +194,7 @@ console.log('\n-- 4. Service Reminders --');
       .replace(/<[^>]+>/g, ' ').replace(/&#\d+;/g, ' ')), '');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
   check('   ...loads the shared shell scripts plus its own page module, last', scripts,
-    ['../js/api.js', '../js/seed-data.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-reminders.js']);
+    ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-reminders.js']);
   ok('   ...keeps the shell-drawn marker after every script', html.indexOf('id="shell-drawn"') > html.lastIndexOf('<script src='), '');
   ok('   ...whose stylesheet is scoped to this page alone',
     read('css/crm-reminders.css').replace(/\/\*[\s\S]*?\*\//g, '').split('}').map(r => r.trim()).filter(Boolean)
@@ -254,7 +254,7 @@ console.log('\n-- 5. Customer Follow-up --');
       .replace(/<[^>]+>/g, ' ').replace(/&#\d+;/g, ' ')), '');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
   check('   ...loads the shared shell scripts plus its own page module, last', scripts,
-    ['../js/api.js', '../js/seed-data.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-follow-up.js']);
+    ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-follow-up.js']);
   ok('   ...keeps the shell-drawn marker after every script', html.indexOf('id="shell-drawn"') > html.lastIndexOf('<script src='), '');
   ok('   ...whose stylesheet is scoped to this page alone',
     read('css/crm-follow-up.css').replace(/\/\*[\s\S]*?\*\//g, '').split('}').map(r => r.trim()).filter(Boolean)
@@ -317,7 +317,7 @@ console.log('\n-- 6. Service History --');
       .replace(/<[^>]+>/g, ' ').replace(/&#\d+;/g, ' ')), '');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
   check('   ...loads the shared shell scripts plus its own page module, last', scripts,
-    ['../js/api.js', '../js/seed-data.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-history.js']);
+    ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-history.js']);
   ok('   ...keeps the shell-drawn marker after every script', html.indexOf('id="shell-drawn"') > html.lastIndexOf('<script src='), '');
   ok('   ...whose stylesheet is scoped to this page alone',
     read('css/crm-history.css').replace(/\/\*[\s\S]*?\*\//g, '').split('}').map(r => r.trim()).filter(Boolean)
@@ -388,7 +388,7 @@ console.log('\n-- 7. Follow-up Tasks --');
       .replace(/<[^>]+>/g, ' ').replace(/&#\d+;/g, ' ')), '');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
   check('   ...loads the shared shell scripts plus its own page module, last', scripts,
-    ['../js/api.js', '../js/seed-data.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-tasks.js']);
+    ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-tasks.js']);
   ok('   ...keeps the shell-drawn marker after every script', html.indexOf('id="shell-drawn"') > html.lastIndexOf('<script src='), '');
   ok('   ...whose stylesheet is scoped to this page alone',
     read('css/crm-tasks.css').replace(/\/\*[\s\S]*?\*\//g, '').split('}').map(r => r.trim()).filter(Boolean)
@@ -450,7 +450,7 @@ console.log('\n-- 8. CRM Reports --');
     rows.length === 1 && (rows[0].match(/<tr\b/g) || []).length === 1 && /<tr class="crp-empty-row">\s*<td colspan="6">/.test(rows[0]) && /Loading CRM activity/.test(rows[0]), '');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
   check('   ...loads the shared shell scripts plus its own page module, last', scripts,
-    ['../js/api.js', '../js/seed-data.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-reports.js']);
+    ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/crm-reports.js']);
   ok('   ...keeps the shell-drawn marker after every script', html.indexOf('id="shell-drawn"') > html.lastIndexOf('<script src='), '');
   ok('   ...whose stylesheet is scoped to this page alone',
     read('css/crm-reports.css').replace(/\/\*[\s\S]*?\*\//g, '').split('}').map(r => r.trim()).filter(Boolean)

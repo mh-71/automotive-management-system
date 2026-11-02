@@ -602,3 +602,16 @@ a.nav__sub:hover { background: rgba(255, 255, 255, .06); color: #fff; text-decor
 }
 /* The header's avatar for a personal account: its initial (0019). */
 .avatar--initial { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--amber); color: var(--ink-900); font-weight: 700; font-size: .95rem; }
+
+/* ---------- Offline (Phase 1) ---------- */
+.offline-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  margin: 0 0 16px; padding: 10px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); border-left: 4px solid var(--warn); background: var(--warn-soft);
+  font-size: .86rem; color: var(--text);
+}
+.offline-bar--back { border-left-color: var(--good); background: var(--good-soft); }
+.sidebar__foot { flex-wrap: wrap; }
+.sidebar__foot-link { display: block; flex-basis: 100%; margin-top: 4px; font-size: .7rem; color: inherit; opacity: .75; text-decoration: none; }
+.sidebar__foot-link:hover, .sidebar__foot-link:focus-visible { opacity: 1; text-decoration: underline; }
+.login__badge { display: inline-block; margin-bottom: 8px; }
