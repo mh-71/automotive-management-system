@@ -15,6 +15,9 @@ Phases 2–4 implement the owner's final decisions:
 | Conflict resolution | **Admin.** |
 | Offline access | **14 days.** |
 
+It is built for the **Cloudflare Workers Free plan**, which Taqwa Autos uses: no
+sync request comes near D1's limit of 50 queries per request (§6a).
+
 This document is the reference for how the CRM behaves without internet and how
 data reaches the server. It also covers how the data on each computer is
 protected, and how to deploy, test and roll back.
@@ -94,15 +97,15 @@ copies and journals. No computer depends on another, and no local server is need
 | `devices` | One row per browser that registered. `id` is the browser's UUID; `code` is a short server-assigned code (`A`, `B`, … `AA`) used in temporary references. Also holds the registering account, last seen, and revoked at / by / reason. |
 | `device_accounts` | Who used which device, and `authorized_at`: the server time of their last online authorization there. |
 | `sync_ops` | **Idempotency journal.** Primary key is the operation UUID. Holds the device, account, kind, collection, temporary reference, target, exact payload, status, official result id, stored answer, and both local and server timestamps. |
-| `sync_conflicts`, `sync_conflict_events` | Conflicts (type, severity, record, device, person, reason, device-vs-server values, resolution) and their append-only history. |
-| `invoice_drafts` | Invoices made offline: `DRF-0001`, never an invoice number. Holds the job card, the total the device saw, the status (Draft, Finalized or Discarded), the real invoice once finalized, and who did what and when. |
+| `sync_conflicts`, `sync_conflict_events` | Conflicts (type, severity, record, device, person, reason, device-vs-server values, resolution) and their append-only history. Status `Open` → `Resolving` (an administrator's atomic claim, `claimed_by` / `claimed_at`) → `Resolved`. |
+| `invoice_drafts` | Invoices made offline: `DRF-0001`, never an invoice number. Holds the job card, the total the device saw, the status (Draft, Finalized or Discarded), the real invoice once finalized, and who did what and when. Its links are `ON DELETE SET NULL`: a draft never blocks deleting a job card or an invoice (existing delete rules are unchanged); the draft is kept with the link cleared. |
 | `offline_stock_movements` | Append-only ledger of offline parts usage. Holds the part, job card, type (use or return), quantity, person, device, local and server time, and status (Applied, Review or Dismissed). |
 | `sync_ops_locks` | Short advisory lock per job card, so two devices' parts usage is applied one after the other. |
 | `change_log` | `seq` (the cursor), collection, record id, and `op`: `upsert`, `delete` (a tombstone) or `refresh` (a collection the write also moved). |
 
 The only rows 0020 writes into existing tables:
 - three `id_counters` rows: devices, syncConflicts and invoiceDrafts;
-- `sync.view` and `sync.manage` for the Admin role, ROL-0002 (owner decision 5). Super Admin already holds every permission.
+- `sync.view` and `sync.manage` for the Admin role, ROL-0002, **only while it is still named "Admin"** (owner decision 5). Super Admin already holds every permission.
 
 **Change log not by triggers.** The real-D1 integration run showed that D1
 counts trigger-written rows in `meta.changes`. Existing write guards depend on
@@ -162,9 +165,63 @@ local records, the queue and what is on screen.
 
 ## 6. Sync protocol
 
+### 6a. The Free-plan query budget
+
+Cloudflare D1 allows **50 queries per Worker invocation on the Free plan** (a
+`batch` counts as one). One sync request applies many operations, so it is
+budgeted:
+
+- **Whole-request target: 40 queries**, the auth gate included. `D1_QUERY_TARGET`
+  can lower it (20–45); nothing ever raises it above 45.
+- Every query the sync handler makes, and every query of the existing routes it
+  calls internally (including background notification writes), goes through a
+  **metered** database (`meter()` in `src/routes/sync.js`). A query past the hard
+  ceiling is refused **before** it runs.
+- **Each operation kind has a measured worst-case cost** (`OP_COST`). An
+  operation starts only if it fits; the rest are answered **`deferred`** (not
+  claimed, nothing written). The device sends them again at once, without
+  back-off. Batches therefore split themselves, by real cost.
+- **Pull pages** stop when the next record would not fit (`PULL_COST`); the
+  client asks for at most 50 rows per page and follows `hasMore`.
+- **Internal calls reuse the gate's account read** (a per-request memo in
+  `lib/auth.js`). The session cookie's signature and expiry are still checked on
+  every call; only the database read is reused, and only within the request.
+- Business rules are **not** bypassed to save queries: every operation still runs
+  through its existing route, with its validation, permissions, stock and balance
+  rules, activity log and notifications.
+
+**Measured** (the real Worker, `tests/unit/api-sync-budget.test.mjs`; every
+query of the request counted at the database layer, including the 2-query auth
+gate and background writes):
+
+| One request carrying… | Queries for the request | Of which the operation | Declared worst case |
+|---|---|---|---|
+| a customer create | 13 | 9 | 16 |
+| a vehicle create | 14 | 10 | 16 |
+| a vehicle whose customer was made offline (temporary reference) | 15 | 11 | 16 |
+| a job card create (services + parts lines) | 18 | 14 | 16 |
+| a payment against an invoice (duplicate check, lock, balance) | 18 | 14 | 17 |
+| parts usage (new line, stock reconciled) | 26 | 22 | 25 |
+| a job card status change (In Progress: stock deducted) | 23 | 19 | 22 |
+| an update (field-level clash check) | 11 | 7 | 10 |
+| an invoice draft | 16 | 12 | 14 |
+| a stock movement | 12 | 8 | 12 |
+| a pull of one job card | — | ≤ 5 per record | 5 |
+
+| Large batches | Requests | Largest request |
+|---|---|---|
+| 25 job cards | 13 | 30 |
+| 25 parts usages | 25 | 25 |
+| 10 customers + 10 payments by temporary reference | several | ≤ 40 |
+| pulling 200 changed job cards | 6 | 30 |
+
+With the per-operation check removed (a deliberate mutation test), requests
+reached 41–44 queries. The hard ceiling still held them well under 50.
+
 ### Push: `POST /api/sync/push { deviceId, ops: [...] }`
 
-At most 50 operations per batch; the client sends batches of 25.
+At most 50 operations per request; the client sends up to 25, and the server
+takes what fits its budget (§6a).
 
 Each operation is `{ opId (UUID), kind, collection, tempId?, targetId?, data, base?, createdAt }`.
 The `kind` is one of `create`, `update`, `status`, `payment`, `invoice_draft`,
@@ -187,9 +244,19 @@ The server works in the order sent: the device sends in the order the changes we
    | `conflict` | With `conflictId`, type and reason. |
    | `rejected` | Malformed. |
    | `dismissed` | An Admin decided not to apply it. |
-   | `retry` | 5xx, or a dependency still on its way. The claim is released; the route's write rolled back. |
+   | `deferred` | Not started: it did not fit this request's query budget. Sent again at once. |
+   | `retry` | Certainly not applied (nothing was sent, or the route refused before writing, or a dependency is still on its way). The claim is released. |
 
    A `401` stops the batch.
+5. **Uncertain outcomes are never re-posted blindly.** If a write was sent and
+   the answer was a server error, whether it was saved is unknown:
+
+   | Kind | What the server does |
+   |---|---|
+   | payment | Looks for the payment carrying this operation's reference (`Offline OFF-…` in its notes). Found: applied. Absent: safe to retry. Before every payment it does the same lookup, so **a second payment for one operation is impossible**, even if the sync record itself were lost. The duplicate check and insert are serialized per customer. |
+   | invoice draft | Looks for the draft with this operation id (also checked before every insert). |
+   | update, status | Repeating them is harmless (same values; a status already reached counts as applied): retried. |
+   | anything else (customer, vehicle, job card, parts usage, stock movement) | Held as an **interrupted** conflict: an Admin checks, then marks it applied (naming a record that must exist) or retries. |
 
 ### Pull: `GET /api/sync/pull?deviceId&cursor&limit`
 
@@ -199,7 +266,13 @@ The server works in the order sent: the device sends in the order the changes we
 - `delete` is a tombstone.
 - `refresh` asks the device to re-read a collection the write also moved (a payment moves its invoice).
 - `hidden` means the role may not read it.
-- The client applies a page, re-reads any `refresh` collections, and only then moves its cursor. An interrupted pull restarts from the last cursor: upserts are idempotent.
+- **The cursor never moves past something that was not read.** A record whose
+  re-read fails with a server error stops the page there (`retryLater`); `401`
+  ends the pull; only `403` is `hidden`. Tombstones are sent only for
+  collections the role may view.
+- The client applies a page, re-reads any `refresh` collections, and only then
+  moves its cursor. If a re-read fails, the cursor stays. An interrupted pull
+  restarts from the last cursor: upserts are idempotent.
 - `GET /api/session` gives a personal account its `syncCursor` and `serverTime`. Data read after that answer is at least that new, so the copy saved from it carries a safe cursor.
 
 ### Engine (client)
@@ -290,7 +363,8 @@ Notes keep the reference and `Offline OFF-…`.
 1. takes a short lock on the job card;
 2. reads its **current** lines and adds or removes the quantity;
 3. prices a new inventory line from the server's part price;
-4. saves through `PUT /api/job-cards/:id`. For a job already in progress, that route reconciles stock against the ledger and refuses a shortage.
+4. saves through `PUT /api/job-cards/:id` with `expectedUpdatedAt`. For a job already in progress, that route reconciles stock against the ledger and refuses a shortage.
+5. If anyone, an online edit included, saved the job card after step 2, the route refuses with `stale_edit`, before and inside the write. Nothing is written and the movement is tried again on fresh lines. A parts movement can never overwrite an edit made in between. `expectedUpdatedAt` is optional, so online edits behave exactly as before.
 
 **The movement** is recorded in `offline_stock_movements`:
 - **Applied** when the job card route accepts it;
@@ -339,6 +413,14 @@ Page: **Offline & Sync → View conflicts**.
 
 **Who can do what:**
 - Only `sync.manage` resolves: authorized Admins, and Super Admin. This is checked on the **server**; the page only hides buttons.
+  - The shared passphrase and the machine token keep their existing full access, so they can resolve too. They are recorded as `passphrase` / `token`, not as a person.
+- **One decision at a time.** A conflict is claimed atomically (`Resolving`) before anything is applied. Of two administrators, or two clicks, exactly one gets it; the other is told it is being decided. An abandoned claim (older than 2 minutes) may be taken over.
+- **An Admin can never apply more than the author could, today.** `retry`, `apply_local` and `apply_anyway` require:
+  - the author's account is still active;
+  - the author's device is not revoked;
+  - the author's **current** role allows the change.
+  
+  Otherwise the decision is refused (`author_inactive`, `device_revoked`, `author_not_permitted`), and the conflict can only be dismissed. The original author and device are recorded in the decision's history.
 - Financial and inventory decisions **require a written reason**.
 - Everyone else sees their own conflicts, read-only.
 
@@ -350,7 +432,7 @@ Page: **Offline & Sync → View conflicts**.
 | `apply_local` | Edit: apply the device's value. |
 | `keep_server` | Edit: keep the server's value. |
 | `apply_anyway` | Duplicate payment: record it. |
-| `mark_applied` | Interrupted: name the record that was saved. |
+| `mark_applied` | Interrupted: name the record that was saved. It must exist. |
 | `dismiss` | Do not apply. |
 
 A retry that fails again stays open, with the attempt in its history.
@@ -406,6 +488,12 @@ computer:
 - **Unsynced work on a computer:**
   - It exists only in that browser's journal until it syncs.
   - It is encrypted, and survives refreshes, restarts and removing copies.
+  - It is **shown only after it is stored**: if the browser refuses to store a change (storage full or damaged), nothing appears and the person is told nothing was saved.
+  - **It survives a new password.**
+    - A person changing their own password carries it over with the old password.
+    - After a reset, or after their copy was removed, the old wrapped key is kept with the journal. **Offline & Sync → Unlock my offline changes** opens it with the previous password, and the same password signing in again recovers it at once.
+    - Online, the server escrow opens it without any password.
+  - **Persistent storage:** the app asks the browser to keep this site's data (`navigator.storage.persist`). Offline & Sync shows *Kept* or *Not guaranteed*. When not guaranteed and changes are waiting, the offline bar warns not to clear site data and to sync soon.
   - It is lost if the site data is cleared or the computer dies before syncing: sync before maintenance.
   - The Offline & Sync counts must show **0 waiting**.
 - **Device loss:**
@@ -447,7 +535,7 @@ Repeat for each person on each computer.
 | Inventory movements | ✔ | ✔ (queued) | — | — | Applied by the server's guard. |
 | Services, Mechanics | ✔ | ✔ | ✔ | online | |
 | Dashboard, Reports | ✔ | — | — | — | Computed from the copy (confirmed records only). |
-| Estimates, Attendance, Workshop Assets, Notifications, Staff, CRM, Inbox | online | online | online | online | Read on demand, not in the copy. **Not offline yet.** |
+| Estimates, Attendance, Workshop Assets, Notifications, Staff, CRM, Inbox | online | online | online | online | Read on demand, not in the copy. **Not offline yet.** Offline, the sidebar marks each one **Online only**, its page says so, and Offline & Sync lists them. |
 | Accounts, Roles, Settings | online | online | online | online | Never offline (by design). |
 
 ---
@@ -455,7 +543,7 @@ Repeat for each person on each computer.
 ## 15. Testing
 
 ```bash
-npm test                     # unit: api-sync (86), offline-sync-client (46), offline-store, storage-offline, ...
+npm test                     # unit: api-sync (86), api-sync-budget (47), offline-sync-client (46), offline-sync-fixes (28), ...
 npm run test:integration     # Worker + local D1 (needs: npm run db:migrate:local)
 ```
 
@@ -478,6 +566,19 @@ npm run test:integration     # Worker + local D1 (needs: npm run db:migrate:loca
   - the 14-day window, clock rollback and revocation;
   - the engine: order, id rewrite, conflicts, failures, back-off, network loss, sign-in, Retry failed;
   - copy integrity, the escrow, two tabs, and the key-wrap race.
+- **`tests/unit/api-sync-budget.test.mjs`**: the Free-plan budget (§6a: every query counted, every request ≤ 40) and one regression test per review finding:
+  - H1: two administrators at once;
+  - H2: saved, but the answer lost;
+  - H3: JSON errors;
+  - M1: deletes;
+  - M2: author checks;
+  - M3: pull cursor;
+  - M4: stale edits;
+  - M5: Staff mechanics;
+  - device ownership.
+
+  Each fix was also checked by re-introducing the bug: every one makes the suite fail.
+- **`tests/unit/offline-sync-fixes.test.cjs`**: deferred push and paged pull, M6 (storage refusal), M7 (key rotation and recovery), M8 (persistence), M9 (IndexedDB upgrade, versionchange, blocked) and M10 (the online-only map).
 - **Two-computer browser scenario** (Playwright, two independent browser contexts, `wrangler dev --local`, fictional data): sign in online on both computers, go offline, create records on each, then reconnect and check the results. The script is not committed; it runs against a local Worker only.
 
 ---
@@ -486,8 +587,11 @@ npm run test:integration     # Worker + local D1 (needs: npm run db:migrate:loca
 
 - **Estimates, attendance, workshop assets, notifications, staff, CRM and inbox** are not available offline. They are read on demand and are not in the copy.
 - **Changing only the unit price** of an existing inventory part line offline is not sent. Quantity changes are, and the server prices new lines.
-- **Online UI edits are not serialized with offline usage.** Offline parts usage on the same job card is serialized on the server by a lock. An online edit of the same job card's whole parts list at the same moment is not covered by it: that is existing behaviour.
+- **Online edits of a job card still overwrite each other** (existing behaviour). Sync's parts usage can no longer overwrite them (`expectedUpdatedAt`, §8), but two people editing the same job card online is unchanged.
+- **Uncertain creates need a person.** A customer, vehicle, job card, parts usage or stock movement whose write was sent but whose answer was lost is held as *interrupted* for an Admin, not repeated. Payments, drafts, updates and status changes settle themselves.
+- **Sync is slower on the Free plan:** heavy operations (parts usage, status changes) go one per request. 25 parts usages take 25 short requests.
 - **Possible-duplicate payment detection** matches the same customer, amount, date, method and invoice / job card. Two genuine identical payments are held for an Admin's decision.
+- **Unsynced work can still be lost** if site data is cleared, or the computer fails, before it syncs; or if a person forgets every password the work was made under while the server escrow is unavailable.
 - **Client-side 14-day and clock checks** can be defeated by the password holder with developer tools on their own computer (§10). The server re-checks everything on reconnect.
 - **Rotating `AUTH_SECRET`** invalidates journal escrows. Journals still open with the password, and the escrow is rewrapped at the next sync.
 - **The change log** is written after a write commits. If that insert fails, the device catches up at its next full online load.
@@ -507,18 +611,26 @@ Do not deploy or migrate without approval.
    - bump `TAQWA_VERSION` (now `2026.11.02-offline.2`);
    - run `node tools/sw-assets.mjs`;
    - commit both. `npm test` fails if the list is stale.
-4. **Deploy the Worker:** see `DEPLOYMENT.md`. The Worker works before the migration too: sync routes answer `not_migrated` (503), and writes are never blocked by the change log.
+4. **Deploy the Worker:** see `DEPLOYMENT.md`. No plan upgrade is needed: everything fits the Workers Free plan (§6a). The Worker works before the migration too: sync routes answer `not_migrated` (503, JSON), and writes are never blocked by the change log.
 5. **Verify with two computers:**
    - sign in online on each, and check Offline & Sync shows *Code A* / *Code B*;
    - go offline, add a customer, then come back online: it gets a `CUS-` id;
    - the Conflict Center opens for an Admin.
 
+### Upgrades and rollback (browser storage, M9)
+
+- **The browser store is now version 2** (Phase 1 was version 1). Upgrading only *adds* the `journals` store; nothing is removed.
+- **Upgrading while an old tab is open:** a Phase 1 tab still open on a computer can block the upgrade. The unlock screen then says to close or reload the other Taqwa tabs. Nothing is lost.
+- From this version on, every tab lets go of the store when a newer version needs it (`versionchange`), so later upgrades are not blocked.
+- **The pages must never be rolled back below storage version 2.** Phase 1 pages cannot open a version 2 store, so offline access on that computer would stop. The data is kept, but cannot be reached until version-2 pages return.
+
 ### Rollback
 
-- **Code rollback (Worker + pages)** is safe:
-  - the old code ignores the 0020 tables;
-  - the service worker is network-first, so browsers get the old pages online.
-  - Changes waiting on a computer stay in its journal, to be sent when the new code is back. **Do not roll back while computers have unsynced work** unless they will get the new code again.
+- **Worker-only rollback is safe:**
+  - the old Worker ignores the 0020 tables;
+  - pages from this version handle a missing `/api/sync` (errors, back-off), and keep every unsynced change in the journal until sync returns.
+- **Page rollback:** only to a build that keeps storage version 2 (this one or later). If the pages must go back further, first make sure every computer has synced (Offline & Sync shows 0 waiting).
+- **Do not roll back while computers have unsynced work**, unless they will get the new code again.
 - **Database:** leave 0020 in place. Its tables are additive and unused by old code. The documented `DROP` steps are at the top of the migration, for a database where no device has synced.
 - **To remove the service worker from every browser,** deploy this as `sw.js`:
 
