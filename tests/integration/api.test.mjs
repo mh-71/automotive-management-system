@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 139 routes', routes.length === 139, routes);
+  t('advertises 144 routes', routes.length === 144, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('57 GET, 50 POST, 21 PUT, 11 DELETE',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 57, POST: 50, PUT: 21, DELETE: 11 }), byMethod);
+    t('59 GET, 53 POST, 21 PUT, 11 DELETE',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 59, POST: 53, PUT: 21, DELETE: 11 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));
@@ -99,7 +99,8 @@ sec('1. Health');
         'POST /api/messenger/conversations/:id/read', 'PUT /api/messenger/conversations/:id/status',
         'GET /api/whatsapp/conversations/:id/messages', 'POST /api/whatsapp/conversations/:id/reply',
         'POST /api/whatsapp/conversations/:id/read', 'POST /api/whatsapp/conversations/:id/unread',
-        'PUT /api/whatsapp/conversations/:id/status']), routes);
+        'PUT /api/whatsapp/conversations/:id/status',
+        'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread']), routes);
   t('advertises invoices routes', routes.includes('GET /api/invoices') && routes.includes('GET /api/invoices/:id'));
   t('advertises payments routes', routes.includes('GET /api/payments') && routes.includes('GET /api/payments/:id'));
   t('advertises expenses routes', routes.includes('GET /api/expenses') && routes.includes('GET /api/expenses/:id'));
@@ -5644,6 +5645,41 @@ sec('30. Attendance (0010): one record per staff member per day, against real D1
   const anon = await sendAnon('GET', '/api/attendance');
   t('30d without credentials -> 401; there is no DELETE (405)', anon.status === 401 && (await send('DELETE', `/api/attendance/${R?.id}`)).status === 405, anon.status);
   // cleanup.sql removes the record (attendance first) and resets the counters.
+}
+
+sec('31. Notifications (0017): raised by real events in the Workers runtime, against real D1');
+{
+  // The notification is written after the answer (ctx.waitUntil), so allow it a moment.
+  const find = async (q) => {
+    for (let i = 0; i < 20; i++) {
+      const r = await get(`/api/notifications?q=${encodeURIComponent(q)}`);
+      if ((r.body?.data ?? []).length) return r;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    return get(`/api/notifications?q=${encodeURIComponent(q)}`);
+  };
+  const made = await send('POST', '/api/customers', { name: 'Notify Integration Customer', phone: '01700009031' });
+  t('31a creating a customer -> 201', made.status === 201, made.body);
+  const listed = await find('Notify Integration Customer');
+  const n = (listed.body?.data ?? [])[0];
+  t('   ...raises one "New customer registered", unread, linked to it', listed.status === 200 && listed.body?.data?.length === 1
+    && n?.title === 'New customer registered' && n?.recordType === 'customer' && n?.recordId === made.body?.data?.id && n?.read === false, listed.body);
+  const count = await get('/api/notifications/unread-count');
+  t('31b unread-count answers for polling', count.status === 200 && count.body?.data?.unread >= 1 && count.body?.data?.latestId >= n?.id, count.body);
+  const read = await send('POST', `/api/notifications/${n?.id}/read`, {});
+  t('31c mark it read -> 200, read, and the count drops', read.status === 200 && read.body?.data?.read === true
+    && read.body?.summary?.unread === count.body?.data?.unread - 1, read.body);
+  const unread = await send('POST', `/api/notifications/${n?.id}/unread`, {});
+  t('   ...mark it unread again -> 200', unread.status === 200 && unread.body?.data?.read === false, unread.body);
+  const all = await send('POST', '/api/notifications/read-all', {});
+  t('31d mark all read -> nothing unread', all.status === 200 && all.body?.summary?.unread === 0, all.body);
+  const before = (await get('/api/notifications')).body?.total;
+  const bad = await send('POST', '/api/customers', { name: '' });
+  await new Promise((res) => setTimeout(res, 300));
+  t('31e a refused create (422) raises nothing', bad.status === 422 && (await get('/api/notifications')).body?.total === before);
+  const anon = await sendAnon('GET', '/api/notifications');
+  t('31f without credentials -> 401', anon.status === 401, anon.status);
+  // cleanup.sql removes the notifications and read markers with the other fixture rows.
 }
 
 console.log(`\nAPI integration: ${pass} passed, ${fail} failed`);

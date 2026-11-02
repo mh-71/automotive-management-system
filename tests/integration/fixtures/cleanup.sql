@@ -26,6 +26,9 @@
 -- the foreign keys.
 -- 0010: attendance references mechanics or staff (CASCADE), and nothing
 -- references it, so it goes first of all.
+-- Notifications (0017) the suite's events raised: read markers first.
+DELETE FROM notification_reads;
+DELETE FROM notifications;
 DELETE FROM attendance;
 -- 0009: accounts reference mechanics or staff (CASCADE), and nothing
 -- references them, so they go first of all.

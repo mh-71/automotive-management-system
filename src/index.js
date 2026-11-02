@@ -135,6 +135,10 @@ import { whatsapp, WHATSAPP_ROUTES } from './routes/whatsapp.js';
 // (validated, rate-limited, CORS for the website only) and the staff routes.
 import { publicFormSubmit, listWebsiteForms, getWebsiteForm, updateWebsiteForm } from './routes/website-forms.js';
 import { getWebsiteBookings } from './routes/website-bookings.js';
+// Notifications Center (0017): the API, and the router-level wrapper that turns
+// a successful create/status change into a notification (lib/notifications.js).
+import { notifications, NOTIFICATION_ROUTES } from './routes/notifications.js';
+import { withNotification } from './lib/notifications.js';
 
 /**
  * Every collection exposes the same two shapes: a list at
@@ -305,6 +309,7 @@ const ROUTES = [
   // The website's form endpoint: public, validated and rate-limited itself
   // (routes/website-forms.js).
   'POST /api/forms/submit',
+  ...NOTIFICATION_ROUTES,
   'GET /api/settings',
   'PUT /api/settings',
   // Signing in and out. Public, necessarily: a browser with no credential
@@ -461,7 +466,10 @@ export default {
 
     // Public, and dispatched before the gate: the website's visitors have no
     // session. Protected instead by validation, CORS, a honeypot and a rate limit.
-    if (url.pathname === '/api/forms/submit') return publicFormSubmit(request, env);
+    // The wrapper only reads the answer: a new enquiry (201) becomes a notification.
+    if (url.pathname === '/api/forms/submit') {
+      return withNotification(request, env, ctx, 'website-forms', 'submit', () => publicFormSubmit(request, env));
+    }
 
     // The Messenger inbox: conversations, messages, replies. Behind the gate.
     if (url.pathname === '/api/messenger' || url.pathname.startsWith('/api/messenger/')) {
@@ -471,6 +479,11 @@ export default {
     // The WhatsApp inbox: conversations, messages, replies, assignment. Behind the gate.
     if (url.pathname === '/api/whatsapp' || url.pathname.startsWith('/api/whatsapp/')) {
       return run(whatsapp, url, url.pathname.slice('/api/whatsapp/'.length));
+    }
+
+    // The Notifications Center: list, unread count, read / unread. Behind the gate.
+    if (url.pathname === '/api/notifications' || url.pathname.startsWith('/api/notifications/')) {
+      return run(notifications, url, url.pathname.slice('/api/notifications/'.length));
     }
 
     // The exact path only. Anything below it (/api/settings/1, and there is
@@ -501,7 +514,8 @@ export default {
         if (rawId === undefined) {
           if (request.method === 'GET') return run(collection.list, url);
           if (request.method === 'POST' && collection.create) {
-            return withActivity(request, env, name, 'create', () => run(collection.create));
+            return withNotification(request, env, ctx, name, 'create',
+              () => withActivity(request, env, name, 'create', () => run(collection.create)));
           }
           return methodNotAllowed(listMethods(collection));
         }
@@ -524,13 +538,15 @@ export default {
           const action = collection.actions?.[actionName];
           if (action) {
             if (request.method !== 'POST') return methodNotAllowed(['POST']);
-            return withActivity(request, env, name, actionName, () => run(action, id.slice(0, slash)));
+            return withNotification(request, env, ctx, name, actionName,
+              () => withActivity(request, env, name, actionName, () => run(action, id.slice(0, slash))));
           }
         }
 
         if (request.method === 'GET') return run(collection.detail, id);
         if (request.method === 'PUT' && collection.update) {
-          return withActivity(request, env, name, 'update', () => run(collection.update, id));
+          return withNotification(request, env, ctx, name, 'update',
+            () => withActivity(request, env, name, 'update', () => run(collection.update, id)));
         }
         if (request.method === 'DELETE' && collection.remove) {
           return run(collection.remove, id);

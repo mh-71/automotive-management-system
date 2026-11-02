@@ -403,6 +403,8 @@ console.log('\n-- 11. Routing --');
     'GET /api/whatsapp/conversations', 'GET /api/whatsapp/conversations/:id', 'GET /api/whatsapp/conversations/:id/messages', 'POST /api/whatsapp/conversations/:id/reply', 'POST /api/whatsapp/conversations/:id/read', 'POST /api/whatsapp/conversations/:id/unread', 'PUT /api/whatsapp/conversations/:id/status',
     'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp',
     'POST /api/forms/submit',
+    'GET /api/notifications', 'GET /api/notifications/unread-count', 'POST /api/notifications/read-all',
+    'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread',
     // Settings is a singleton: a read and a write, and no /:id — there is
     // no create or delete for a row that is permanently id 1.
     'GET /api/settings', 'PUT /api/settings',
@@ -413,7 +415,7 @@ console.log('\n-- 11. Routing --');
   const res = await call('/api/nope', { DB: stubDB({ rows: [] }) });
   const body = await res.json();
   check('unknown collection -> 404', res.status, 404);
-  check('404 advertises every route', body.error.available.length, 139);
+  check('404 advertises every route', body.error.available.length, 144);
 }
 
 console.log(`\nGET /api/services unit: ${pass} passed, ${fail} failed`);

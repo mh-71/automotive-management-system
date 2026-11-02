@@ -2,10 +2,11 @@
 
    What must hold:
      1. The row sits after the Customer CRM group (right after the Workshop Assets group) and before Reports,
-        and links to the demo page, which exists.
+        and links to the Notifications page, which exists.
      2. On the Notifications page it is the active link (amber, aria-current)
         and no other top-level link is; elsewhere it is not active.
-     3. The count badge is the fixed design placeholder 3 and says so.
+     3. The count badge is the real unread count: drawn empty and hidden, filled
+        from the Worker only when the API is live -- never a made-up number.
 
    Drives the REAL js/app.js through the harness. */
 const fs = require('fs'), path = require('path');
@@ -59,9 +60,15 @@ console.log('\n-- 2. on the Notifications page --');
 console.log('\n-- 3. the badge --');
 {
   const row = notifyRow(shellFor('dashboard'));
-  ok('the count is the fixed placeholder 3', /<span class="nav__count"[^>]*>3<\/span>/.test(row), row.slice(-120));
-  ok('   ...and says it is a design placeholder', /<span class="nav__count" title="The count is a design placeholder\.">/.test(row), row.slice(-120));
-  ok('nothing in app.js computes it', /const NOTIFY_PLACEHOLDER_COUNT = 3;/.test(fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8')), '');
+  ok('the count is drawn empty and hidden -- no number until the Worker gives one',
+    /<span class="nav__count" id="navNotifyCount" hidden><\/span>/.test(row), row.slice(-120));
+  const app = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
+  ok('no placeholder count is left in app.js', !/NOTIFY_PLACEHOLDER_COUNT|design placeholder/.test(app), '');
+  ok('it is filled from GET /api/notifications/unread-count, only when the API is live',
+    /Api\.get\('\/notifications\/unread-count'\)/.test(app) && /function startNotifyBadge\(\) \{\s*if \(!Storage\.isApi\(\)/.test(app), '');
+  ok('   ...and the Notifications page can update it at once', /addEventListener\('taqwa:notifications-unread'/.test(app), '');
+  const css = fs.readFileSync(path.join(ROOT, 'css/style.css'), 'utf8');
+  ok('a hidden badge takes no space', /\.nav__count\[hidden\] \{ display: none; \}/.test(css), '');
 }
 
 process.exit(summary('notifications-nav') === 0 ? 0 : 1);
