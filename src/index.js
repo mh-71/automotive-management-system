@@ -127,6 +127,10 @@ import { withActivity } from './lib/activity.js';
 // Meta's own verification; the inbox routes are behind the gate like any read.
 import { messengerWebhook } from './routes/messenger-webhook.js';
 import { messenger, MESSENGER_ROUTES } from './routes/messenger.js';
+// Social Inbox › WhatsApp (0015): the Cloud API webhook (public, Meta's own
+// verification) and the staff inbox routes (behind the gate).
+import { whatsappWebhook } from './routes/whatsapp-webhook.js';
+import { whatsapp, WHATSAPP_ROUTES } from './routes/whatsapp.js';
 import { getWebsiteBookings } from './routes/website-bookings.js';
 
 /**
@@ -285,6 +289,11 @@ const ROUTES = [
   // Meta's signature itself (routes/messenger-webhook.js).
   'GET /api/webhooks/messenger',
   'POST /api/webhooks/messenger',
+  ...WHATSAPP_ROUTES,
+  // The WhatsApp Cloud API webhook: public like Messenger's, verified by
+  // Meta's signature itself (routes/whatsapp-webhook.js).
+  'GET /api/webhooks/whatsapp',
+  'POST /api/webhooks/whatsapp',
   'GET /api/settings',
   'PUT /api/settings',
   // Signing in and out. Public, necessarily: a browser with no credential
@@ -437,10 +446,16 @@ export default {
     // It is protected instead by the verify token (GET) and the App Secret
     // signature on every delivery (POST); an unsigned body is never read.
     if (url.pathname === '/api/webhooks/messenger') return messengerWebhook(request, env, url, ctx);
+    if (url.pathname === '/api/webhooks/whatsapp') return whatsappWebhook(request, env, url);
 
     // The Messenger inbox: conversations, messages, replies. Behind the gate.
     if (url.pathname === '/api/messenger' || url.pathname.startsWith('/api/messenger/')) {
       return run(messenger, url, url.pathname.slice('/api/messenger/'.length));
+    }
+
+    // The WhatsApp inbox: conversations, messages, replies, assignment. Behind the gate.
+    if (url.pathname === '/api/whatsapp' || url.pathname.startsWith('/api/whatsapp/')) {
+      return run(whatsapp, url, url.pathname.slice('/api/whatsapp/'.length));
     }
 
     // The exact path only. Anything below it (/api/settings/1, and there is

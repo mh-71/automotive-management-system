@@ -397,6 +397,9 @@ console.log('\n-- 11. Routing --');
     // 0014: the Messenger inbox, then Meta's public webhook.
     'GET /api/messenger/conversations', 'GET /api/messenger/conversations/:id', 'GET /api/messenger/conversations/:id/messages', 'POST /api/messenger/conversations/:id/reply', 'POST /api/messenger/conversations/:id/read', 'PUT /api/messenger/conversations/:id/status',
     'GET /api/webhooks/messenger', 'POST /api/webhooks/messenger',
+    // 0015: the WhatsApp inbox, then the Cloud API's public webhook.
+    'GET /api/whatsapp/conversations', 'GET /api/whatsapp/conversations/:id', 'GET /api/whatsapp/conversations/:id/messages', 'POST /api/whatsapp/conversations/:id/reply', 'POST /api/whatsapp/conversations/:id/read', 'POST /api/whatsapp/conversations/:id/unread', 'PUT /api/whatsapp/conversations/:id/status',
+    'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp',
     // Settings is a singleton: a read and a write, and no /:id — there is
     // no create or delete for a row that is permanently id 1.
     'GET /api/settings', 'PUT /api/settings',
@@ -407,7 +410,7 @@ console.log('\n-- 11. Routing --');
   const res = await call('/api/nope', { DB: stubDB({ rows: [] }) });
   const body = await res.json();
   check('unknown collection -> 404', res.status, 404);
-  check('404 advertises every route', body.error.available.length, 126);
+  check('404 advertises every route', body.error.available.length, 135);
 }
 
 console.log(`\nGET /api/services unit: ${pass} passed, ${fail} failed`);

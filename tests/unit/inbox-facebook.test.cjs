@@ -146,7 +146,7 @@ console.log('\n-- 2. the Social Inbox entries --');
 {
   const group = inboxGroup(shellFor('dashboard'));
   check('Social Inbox has exactly four entries', group.split(/(?=<(?:a|span) class="nav__sub[ "])/).slice(1).length, 4);
-  for (const [label, href, hint] of [['All Conversations', 'inbox-conversations', 'Facebook'], ['Facebook', 'inbox-facebook', 'Messenger'], ['WhatsApp', 'inbox-whatsapp', 'Demo'], ['Website Forms', 'inbox-website-forms', 'Demo']]) {
+  for (const [label, href, hint] of [['All Conversations', 'inbox-conversations', 'Facebook'], ['Facebook', 'inbox-facebook', 'Messenger'], ['WhatsApp', 'inbox-whatsapp', 'Business'], ['Website Forms', 'inbox-website-forms', 'Demo']]) {
     const row = subFor(group, label);
     ok(`${label} links to pages/${href}.html, labelled ${hint}`, new RegExp(`^<a class="nav__sub" href="pages/${href}\\.html"`).test(row) && row.includes(`<small>${hint}</small>`), row.slice(0, 200));
   }

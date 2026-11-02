@@ -415,7 +415,7 @@ console.log('\n-- 14. Route registration --');
   const b = await res.json();
   const routes = b.data.routes;
 
-  check('health advertises 126 routes', routes.length, 126);
+  check('health advertises 135 routes', routes.length, 135);
   ok_('advertises GET /api/settings', routes.includes('GET /api/settings'));
   ok_('does NOT advertise a settings detail route', !routes.includes('GET /api/settings/:id'));
   // Was "every route is a GET" through Phase B. C-2 made that false by
@@ -424,8 +424,8 @@ console.log('\n-- 14. Route registration --');
   {
     const byMethod = {};
     routes.forEach((r) => { const m = r.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    check('51 GET, 45 POST, 19 PUT, 11 DELETE', byMethod,
-      { GET: 51, POST: 45, PUT: 19, DELETE: 11 });
+    check('55 GET, 49 POST, 20 PUT, 11 DELETE', byMethod,
+      { GET: 55, POST: 49, PUT: 20, DELETE: 11 });
     ok_('no other method is advertised',
       routes.every((r) => ['GET', 'POST', 'PUT', 'DELETE'].includes(r.split(' ')[0])));
     check('settings offers a read and a write, and nothing else',
@@ -469,7 +469,7 @@ console.log('\n-- 15. The existing ten collections are untouched --');
   // order. C-2 interleaved write routes between them but removed none.
   {
     const gets = routes.filter((r) => r.startsWith('GET '));
-    check('all 51 GET routes survive, in order', gets, [
+    check('all 55 GET routes survive, in order', gets, [
       'GET /api/health',
       ...['customers', 'vehicles', 'services', 'mechanics', 'parts', 'appointments',
         'job-cards', 'invoices', 'payments', 'invoice-adjustments', 'expenses', 'inventory-transactions',
@@ -477,6 +477,8 @@ console.log('\n-- 15. The existing ten collections are untouched --');
         .flatMap((n) => [`GET /api/${n}`, `GET /api/${n}/:id`]),
       'GET /api/messenger/conversations', 'GET /api/messenger/conversations/:id', 'GET /api/messenger/conversations/:id/messages',
       'GET /api/webhooks/messenger',
+      'GET /api/whatsapp/conversations', 'GET /api/whatsapp/conversations/:id', 'GET /api/whatsapp/conversations/:id/messages',
+      'GET /api/webhooks/whatsapp',
       'GET /api/settings',
       'GET /api/session',
     ]);

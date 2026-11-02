@@ -40,3 +40,21 @@ META_PAGE_ID=
 
 # Optional: the Graph API version, e.g. v23.0 (the default).
 # META_GRAPH_VERSION=
+
+# ---- WhatsApp Business (Cloud API, migration 0015) --------------------------
+# Optional. Without them the WhatsApp inbox still works locally, it just
+# receives and sends nothing. Use TEST-ONLY values here. Production values are
+# set with `wrangler secret put --env production` -- see WHATSAPP_SETUP.md.
+
+# A token with whatsapp_business_messaging (a System User token is best),
+# and the business number's "Phone number ID" (not the phone number itself).
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
+
+# Any long random string, typed into the Meta dashboard as the WhatsApp
+# webhook's Verify Token. Separate from the Messenger one.
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=
+
+# Optional: only if WhatsApp is set up in a DIFFERENT Meta app from Messenger.
+# When unset, META_APP_SECRET verifies WhatsApp deliveries too.
+# WHATSAPP_APP_SECRET=
