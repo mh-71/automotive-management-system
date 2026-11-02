@@ -149,6 +149,7 @@ console.log('\n-- A. migration --');
 {
   const sql = readFileSync(join(ROOT, 'migrations', '0020_offline_sync.sql'), 'utf8').replace(/--.*$/gm, '');
   ok_('the migration is additive: no DROP, DELETE, ALTER or UPDATE of anything that existed', !/\b(DROP|ALTER)\b/i.test(sql) && !/^\s*(DELETE|UPDATE)\b/im.test(sql.replace(/BEGIN[\s\S]*?END;/g, '')));
+  ok_('   ...and creates NO triggers: D1 counts trigger-written rows in meta.changes, which the write guards depend on', !/CREATE\s+TRIGGER/i.test(sql));
   ok_('   ...it applies twice without error (IF NOT EXISTS / OR IGNORE throughout)', (() => { try { DB.raw.exec(readFileSync(join(ROOT, 'migrations', '0020_offline_sync.sql'), 'utf8')); return true; } catch (e) { return false; } })());
   check('the Admin role gains sync.view and sync.manage (owner decision: Admins resolve conflicts)',
     DB.raw.prepare("SELECT permission FROM role_permissions WHERE role_id = 'ROL-0002' AND permission LIKE 'sync.%' ORDER BY permission").all().map((r) => r.permission), ['sync.manage', 'sync.view']);
@@ -422,6 +423,8 @@ console.log('\n-- H. pull (server cursor, tombstones, pages) --');
   ok_('Computer B pulls from its cursor: the new customer with its record', byId[`customers:${made.body.data.id}`] && byId[`customers:${made.body.data.id}`].record.name === 'Pulled Customer', p.body);
   check('   ...the deleted one as a tombstone', byId[`customers:${gone.body.data.id}`] && byId[`customers:${gone.body.data.id}`].op, 'delete');
   ok_('   ...a payment the Mechanic may not read is hidden (no record)', p.body.data.changes.filter((c) => c.collection === 'payments').every((c) => c.op === 'hidden' && !c.record), p.body.data.changes.filter((c) => c.collection === 'payments'));
+  check('   ...and what the payment also moved is a "refresh" -- the job card, which the Mechanic may read; the invoices, which it may not, hidden',
+    ['jobCards', 'invoices'].map((col) => (p.body.data.changes.find((c) => c.collection === col && c.id === '*') || {}).op), ['refresh', 'hidden']);
   ok_('   ...the cursor is a server sequence number and only moves forward', p.body.data.cursor > start && !p.body.data.hasMore);
   const empty = await api('GET', `/api/sync/pull?deviceId=${devB}&cursor=${p.body.data.cursor}`, undefined, mech.cookie);
   check('   ...pulling from the new cursor returns nothing new', [empty.body.data.changes.length, empty.body.data.cursor], [0, p.body.data.cursor]);

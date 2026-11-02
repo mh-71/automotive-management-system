@@ -32,13 +32,20 @@
 --                        applied through the job card's own stock rules, or
 --                        flagged for review. Append-only.
 --   change_log           a server-side sequence of what changed (upsert or
---                        delete, by collection and id), written by triggers.
---                        Devices pull from it with a cursor -- a sequence
---                        number, never a client clock -- and deletes arrive as
---                        tombstones.
+--                        delete of a record, or 'refresh' of a collection a
+--                        write also moved -- a payment moves its invoice),
+--                        written by the router after each successful write
+--                        (src/lib/changes.js). Devices pull from it with a
+--                        cursor -- a sequence number, never a client clock --
+--                        and deletes arrive as tombstones.
+--
+--                        NOT triggers, deliberately: D1 counts rows a trigger
+--                        writes in a statement's meta.changes, and existing
+--                        write guards rely on that count being exactly the
+--                        rows the statement itself changed.
 --
 -- ROLLBACK (only if no device has synced through it; data in these tables
--- would be lost): DROP the triggers trg_cl_*, then DROP TABLE change_log, sync_ops_locks,
+-- would be lost): DROP TABLE change_log, sync_ops_locks,
 -- offline_stock_movements, invoice_drafts, sync_conflict_events,
 -- sync_conflicts, sync_ops, device_accounts, devices; DELETE the three
 -- id_counters rows and the two role_permissions rows. Existing tables are
@@ -176,7 +183,7 @@ CREATE TABLE IF NOT EXISTS change_log (
   seq         INTEGER PRIMARY KEY AUTOINCREMENT,
   collection  TEXT NOT NULL,
   record_id   TEXT NOT NULL,
-  op          TEXT NOT NULL CHECK (op IN ('upsert', 'delete')),
+  op          TEXT NOT NULL CHECK (op IN ('upsert', 'delete', 'refresh')),
   changed_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_change_log_record ON change_log (collection, record_id);
@@ -191,173 +198,3 @@ INSERT OR IGNORE INTO id_counters (collection, prefix, last_value) VALUES
 INSERT OR IGNORE INTO role_permissions (role_id, permission)
   SELECT 'ROL-0002', p FROM (SELECT 'sync.view' AS p UNION ALL SELECT 'sync.manage')
    WHERE EXISTS (SELECT 1 FROM roles WHERE id = 'ROL-0002');
-
--- ---------------------------------------------------------------------------
--- change_log triggers. A line table's change is logged against its parent
--- (a job card's parts are part of the job card the devices pull).
--- ---------------------------------------------------------------------------
-CREATE TRIGGER IF NOT EXISTS trg_cl_customers_ins AFTER INSERT ON customers BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('customers', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_customers_upd AFTER UPDATE ON customers BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('customers', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_customers_del AFTER DELETE ON customers BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('customers', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_vehicles_ins AFTER INSERT ON vehicles BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('vehicles', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_vehicles_upd AFTER UPDATE ON vehicles BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('vehicles', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_vehicles_del AFTER DELETE ON vehicles BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('vehicles', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_appointments_ins AFTER INSERT ON appointments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('appointments', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_appointments_upd AFTER UPDATE ON appointments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('appointments', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_appointments_del AFTER DELETE ON appointments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('appointments', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_cards_ins AFTER INSERT ON job_cards BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_cards_upd AFTER UPDATE ON job_cards BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_cards_del AFTER DELETE ON job_cards BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_services_ins AFTER INSERT ON services BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('services', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_services_upd AFTER UPDATE ON services BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('services', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_services_del AFTER DELETE ON services BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('services', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_mechanics_ins AFTER INSERT ON mechanics BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('mechanics', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_mechanics_upd AFTER UPDATE ON mechanics BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('mechanics', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_mechanics_del AFTER DELETE ON mechanics BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('mechanics', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_parts_ins AFTER INSERT ON parts BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('parts', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_parts_upd AFTER UPDATE ON parts BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('parts', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_parts_del AFTER DELETE ON parts BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('parts', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoices_ins AFTER INSERT ON invoices BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoices_upd AFTER UPDATE ON invoices BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoices_del AFTER DELETE ON invoices BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_payments_ins AFTER INSERT ON payments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('payments', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_payments_upd AFTER UPDATE ON payments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('payments', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_payments_del AFTER DELETE ON payments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('payments', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_expenses_ins AFTER INSERT ON expenses BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('expenses', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_expenses_upd AFTER UPDATE ON expenses BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('expenses', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_expenses_del AFTER DELETE ON expenses BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('expenses', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_inventory_transactions_ins AFTER INSERT ON inventory_transactions BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('inventoryTransactions', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_inventory_transactions_upd AFTER UPDATE ON inventory_transactions BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('inventoryTransactions', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_inventory_transactions_del AFTER DELETE ON inventory_transactions BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('inventoryTransactions', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_adjustments_ins AFTER INSERT ON invoice_adjustments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoiceAdjustments', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_adjustments_upd AFTER UPDATE ON invoice_adjustments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoiceAdjustments', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_adjustments_del AFTER DELETE ON invoice_adjustments BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoiceAdjustments', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_card_services_ins AFTER INSERT ON job_card_services
-  WHEN EXISTS (SELECT 1 FROM job_cards WHERE id = NEW.job_card_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', NEW.job_card_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_card_services_upd AFTER UPDATE ON job_card_services
-  WHEN EXISTS (SELECT 1 FROM job_cards WHERE id = NEW.job_card_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', NEW.job_card_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_card_services_del AFTER DELETE ON job_card_services
-  WHEN EXISTS (SELECT 1 FROM job_cards WHERE id = OLD.job_card_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', OLD.job_card_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_card_parts_ins AFTER INSERT ON job_card_parts
-  WHEN EXISTS (SELECT 1 FROM job_cards WHERE id = NEW.job_card_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', NEW.job_card_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_card_parts_upd AFTER UPDATE ON job_card_parts
-  WHEN EXISTS (SELECT 1 FROM job_cards WHERE id = NEW.job_card_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', NEW.job_card_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_job_card_parts_del AFTER DELETE ON job_card_parts
-  WHEN EXISTS (SELECT 1 FROM job_cards WHERE id = OLD.job_card_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('jobCards', OLD.job_card_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_services_ins AFTER INSERT ON invoice_services
-  WHEN EXISTS (SELECT 1 FROM invoices WHERE id = NEW.invoice_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', NEW.invoice_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_services_upd AFTER UPDATE ON invoice_services
-  WHEN EXISTS (SELECT 1 FROM invoices WHERE id = NEW.invoice_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', NEW.invoice_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_services_del AFTER DELETE ON invoice_services
-  WHEN EXISTS (SELECT 1 FROM invoices WHERE id = OLD.invoice_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', OLD.invoice_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_parts_ins AFTER INSERT ON invoice_parts
-  WHEN EXISTS (SELECT 1 FROM invoices WHERE id = NEW.invoice_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', NEW.invoice_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_parts_upd AFTER UPDATE ON invoice_parts
-  WHEN EXISTS (SELECT 1 FROM invoices WHERE id = NEW.invoice_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', NEW.invoice_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_parts_del AFTER DELETE ON invoice_parts
-  WHEN EXISTS (SELECT 1 FROM invoices WHERE id = OLD.invoice_id) BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoices', OLD.invoice_id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_drafts_ins AFTER INSERT ON invoice_drafts BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoiceDrafts', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_drafts_upd AFTER UPDATE ON invoice_drafts BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoiceDrafts', NEW.id, 'upsert', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;
-CREATE TRIGGER IF NOT EXISTS trg_cl_invoice_drafts_del AFTER DELETE ON invoice_drafts BEGIN
-  INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ('invoiceDrafts', OLD.id, 'delete', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-END;

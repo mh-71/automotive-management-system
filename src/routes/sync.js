@@ -49,6 +49,7 @@ import { ok, fail, methodNotAllowed, noDatabase, notFound, unprocessable, confli
 import { readJsonBody, readOptionalBody, nowIso, allocateId } from '../lib/write.js';
 import { principalOf, authConfig } from '../lib/auth.js';
 import { can, collectionPermission } from '../lib/permissions.js';
+import { logChanges } from '../lib/changes.js';
 
 export const SYNC_ROUTES = [
   'POST /api/devices/register',
@@ -516,6 +517,7 @@ async function applyOp(c, op, opts = {}) {
          VALUES (?1, ?2, ?3, ?4, 'Draft', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)`
       ).bind(allocated.id, job.body.data.id, data.date || null, String(data.notes || '').slice(0, 1000), localTotal,
         json(data.lines || {}), op.tempId || null, op.opId, op.deviceId, op.accountId, at).run();
+      await logChanges(c.env, [{ collection: 'invoiceDrafts', id: allocated.id, op: 'upsert' }]);
       return { status: 'applied', id: allocated.id, record: await draftById(c.env, allocated.id) };
     }
 
@@ -785,6 +787,11 @@ async function pullChanges(c, url) {
   for (let i = 0; i < entries.length; i += 8) {
     const chunk = await Promise.all(entries.slice(i, i + 8).map(async (r) => {
       const base = { seq: Number(r.seq), collection: r.collection, id: r.record_id };
+      if (r.op === 'refresh') {
+        // A write elsewhere moved this collection (a payment, its invoice): re-read it -- if this role may.
+        const path = PATHS[r.collection];
+        return path && can(who, collectionPermission(path, 'view')) ? { ...base, op: 'refresh' } : { ...base, op: 'hidden' };
+      }
       if (r.op === 'delete') return { ...base, op: 'delete' };
       if (r.collection === 'invoiceDrafts') {
         if (!can(who, 'invoices.view')) return { ...base, op: 'hidden' };
@@ -961,6 +968,7 @@ async function finalizeDraft(c, id) {
   const at = nowIso();
   await c.env.DB.prepare("UPDATE invoice_drafts SET status = 'Finalized', invoice_id = ?2, finalized_by = ?3, finalized_at = ?4, updated_at = ?4 WHERE id = ?1 AND status = 'Draft'")
     .bind(id, r.body.data.id, who.kind === 'account' ? who.id : who.kind, at).run();
+  await logChanges(c.env, [{ collection: 'invoiceDrafts', id, op: 'upsert' }]);
   return ok({ draft: await draftById(c.env, id), invoice: r.body.data }, { appliedAdvances: r.body.appliedAdvances || [] });
 }
 
@@ -976,6 +984,7 @@ async function discardDraft(c, id) {
   const at = nowIso();
   await c.env.DB.prepare("UPDATE invoice_drafts SET status = 'Discarded', discarded_by = ?2, discarded_at = ?3, discard_reason = ?4, updated_at = ?3 WHERE id = ?1 AND status = 'Draft'")
     .bind(id, who.kind === 'account' ? who.id : who.kind, at, reason).run();
+  await logChanges(c.env, [{ collection: 'invoiceDrafts', id, op: 'upsert' }]);
   return ok(await draftById(c.env, id));
 }
 

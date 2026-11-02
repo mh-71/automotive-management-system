@@ -146,6 +146,8 @@ import { withNotification } from './lib/notifications.js';
 // Offline sync (0020): devices, push / pull, conflicts and invoice drafts.
 // Operations are applied through the routes above, as the person who made them.
 import { sync, SYNC_ROUTES } from './routes/sync.js';
+// What every successful write changed, for devices to pull (0020).
+import { withChanges } from './lib/changes.js';
 
 /**
  * Every collection exposes the same two shapes: a list at
@@ -560,7 +562,7 @@ const worker = {
           need = collectionPermission(name, 'create');
           if (request.method === 'POST' && collection.create) {
             return withNotification(request, env, ctx, name, 'create',
-              () => withActivity(request, env, name, 'create', () => run(collection.create)));
+              () => withActivity(request, env, name, 'create', () => withChanges(env, name, 'create', null, () => run(collection.create))));
           }
           return methodNotAllowed(listMethods(collection));
         }
@@ -585,7 +587,7 @@ const worker = {
             if (request.method !== 'POST') return methodNotAllowed(['POST']);
             need = collectionPermission(name, actionName);
             return withNotification(request, env, ctx, name, actionName,
-              () => withActivity(request, env, name, actionName, () => run(action, id.slice(0, slash))));
+              () => withActivity(request, env, name, actionName, () => withChanges(env, name, actionName, id.slice(0, slash), () => run(action, id.slice(0, slash)))));
           }
         }
 
@@ -594,10 +596,10 @@ const worker = {
         need = collectionPermission(name, request.method === 'PUT' ? 'update' : 'remove');
         if (request.method === 'PUT' && collection.update) {
           return withNotification(request, env, ctx, name, 'update',
-            () => withActivity(request, env, name, 'update', () => run(collection.update, id)));
+            () => withActivity(request, env, name, 'update', () => withChanges(env, name, 'update', id, () => run(collection.update, id))));
         }
         if (request.method === 'DELETE' && collection.remove) {
-          return run(collection.remove, id);
+          return withChanges(env, name, 'remove', id, () => run(collection.remove, id));
         }
         return methodNotAllowed(detailMethods(collection));
       }

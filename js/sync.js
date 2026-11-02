@@ -620,11 +620,14 @@ const Sync = (() => {
     let cursor = host.cursor;
     if (!Number.isInteger(cursor)) return 0;
     let applied = 0;
+    const refresh = new Set();
     for (let page = 0; page < 20; page++) {
       const res = await Api.get(`/sync/pull?deviceId=${encodeURIComponent(deviceId)}&cursor=${cursor}&limit=200`);
       if (!res.ok) break;
       for (const ch of res.data.changes || []) {
         if (!host.collections.includes(ch.collection)) continue;
+        // Another write moved this collection as a side effect (a payment, its invoice): read it again.
+        if (ch.op === 'refresh') { refresh.add(ch.collection); continue; }
         const local = host.cacheGet(ch.collection, ch.id);
         if (ch.op === 'upsert' && ch.record) {
           if (local && local._sync) (memBase[ch.collection] || (memBase[ch.collection] = {}))[ch.id] = ch.record;
@@ -635,9 +638,13 @@ const Sync = (() => {
           applied += 1;
         }
       }
-      cursor = res.data.cursor;
-      host.cursor = cursor;
-      if (!res.data.hasMore) break;
+      if (!res.data.hasMore) {
+        // The cursor moves only once what it covers is on screen.
+        for (const c of refresh) { try { if ((await host.reload(c)).ok) applied += 1; } catch (e) { /* stays as it was */ } }
+        cursor = res.data.cursor; host.cursor = cursor;
+        break;
+      }
+      cursor = res.data.cursor; host.cursor = cursor;
     }
     return applied;
   }
