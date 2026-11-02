@@ -242,9 +242,10 @@ for (const [key, label] of ENTRIES) {
   ok('   ...a page-level alert and a polite status line', a.includes('id="saAlert" role="alert"') && a.includes('id="saStatus" role="status" aria-live="polite"'), '');
   ok('   ...every field\'s message is tied to its input', [...a.matchAll(/<p class="field__error" id="([^"]+)-err"/g)].every(m => new RegExp(`id="${m[1]}"[^>]*aria-describedby="[^"]*${m[1]}-err`).test(a)), '');
   const u = pages['staff-accounts'];
-  ok('User Accounts: explains what an account is, that every account has full access, and that there is no e-mail recovery',
-    /<h2 class="uac-note__title" id="uacNoteTitle">How accounts work<\/h2>/.test(u) && /full access \(Administrator\)/.test(u)
-      && /Password recovery by e-mail is not available/.test(u) && /shared workshop passphrase, which keeps working/.test(u), '');
+  ok('User Accounts: explains sign-in by username, e-mail or Staff ID, one role each, temporary passwords, and that there is no e-mail recovery',
+    /<h2 class="uac-note__title" id="uacNoteTitle">How accounts work<\/h2>/.test(u) && /their own username, e-mail address or Staff ID/.test(u)
+      && /<strong>one role<\/strong>/.test(u) && /<strong>temporary<\/strong>/.test(u) && /Password recovery by e-mail is not available/.test(u)
+      && /id="uacPassphrase"[^>]*hidden/.test(u), '');
   check('   ...the requested columns, with no password column', [...u.matchAll(/<th scope="col">(?:<span class="uac-sr-only">)?([^<]+)/g)].map(m => m[1]),
     ['Employee', 'Staff ID', 'Username', 'Role', 'Account Status', 'Last Sign-in', 'Actions']);
   ok('   ...search, role and status filters, Clear filters and Create Account, all disabled until the data loads',

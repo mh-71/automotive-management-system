@@ -537,14 +537,14 @@ console.log('\n-- 14. Routing --');
     },
   };
   const routes = (await (await call('/api/health', { DB: db }, 'GET')).json()).data.routes;
-  check('the registry advertises 149 routes', routes.length, 149);
+  check('the registry advertises 151 routes', routes.length, 151);
   for (const r of ['GET /api/appointments', 'POST /api/appointments', 'GET /api/appointments/:id',
     'PUT /api/appointments/:id', 'DELETE /api/appointments/:id']) {
     ok_(`advertises ${r}`, routes.includes(r), routes.filter((x) => x.includes('appointments')));
   }
   const byMethod = {};
   routes.forEach((r) => { const m = r.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-  check('61 GET, 54 POST, 22 PUT, 12 DELETE (0005 added follow-ups, 0006 follow-up tasks, 0007 estimates, 0008 staff, 0009 accounts, 0010 attendance, 0011 leave requests, 0012 the activity log, 0013 tools, 0014 Messenger, 0015 WhatsApp, 0016 Website Forms, 0017 Notifications, 0018 Roles)', byMethod, { GET: 61, POST: 54, PUT: 22, DELETE: 12 });
+  check('61 GET, 55 POST, 23 PUT, 12 DELETE (0005 added follow-ups, 0006 follow-up tasks, 0007 estimates, 0008 staff, 0009 accounts, 0010 attendance, 0011 leave requests, 0012 the activity log, 0013 tools, 0014 Messenger, 0015 WhatsApp, 0016 Website Forms, 0017 Notifications, 0018 Roles, 0019 individual login)', byMethod, { GET: 61, POST: 55, PUT: 23, DELETE: 12 });
 
   const patchList = await call('/api/appointments', { DB: stubDB() }, 'PATCH', {});
   check('PATCH on the list -> 405', patchList.status, 405);

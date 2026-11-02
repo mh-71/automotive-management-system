@@ -59,7 +59,17 @@ const StaffAccounts = (() => {
     people: svg('M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z'),
     search: svg('M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z'),
     alert: svg('M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z'),
+    edit: svg('M3 17.2V21h3.8l11-11.1-3.7-3.7L3 17.2zM20.7 7c.4-.4.4-1 0-1.4l-2.3-2.3c-.4-.4-1-.4-1.4 0l-1.8 1.8 3.7 3.7L20.7 7z'),
   };
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const MOBILE_RE = /^[0-9+\-() ]{6,20}$/;
+  /** Optional contact fields: e-mail (6-160, one @ and a dot) and mobile (6-20 digits and + - ( ) spaces). */
+  function contactProblems(v) {
+    const e = {};
+    if (v.email && (v.email.length < 6 || v.email.length > 160 || !EMAIL_RE.test(v.email))) e.email = 'Enter a valid e-mail address, or leave it empty.';
+    if (v.mobile && !MOBILE_RE.test(v.mobile)) e.mobile = 'Use 6-20 digits, spaces, + - ( ).';
+    return e;
+  }
 
   /* ---------- pure helpers (also used by the unit tests) ---------- */
 
@@ -115,6 +125,8 @@ const StaffAccounts = (() => {
     if (!/^(MEC|STF)-\d{4,}$/.test(String(v.staffId || ''))) e.staffId = 'Choose a staff member.';
     if (!USERNAME.test(String(v.username || ''))) e.username = 'Use 3-32 lower-case letters, digits, dots, dashes or underscores.';
     if (!assignableRoles().some(r => r.name === v.role)) e.role = 'Choose a role.';
+    if (/^(mec|stf)-\d+$/i.test(String(v.username || ''))) e.username = 'A username cannot look like a Staff ID (e.g. STF-0001).';
+    Object.assign(e, contactProblems(v));
     const p = passwordProblem(v.password, v.username);
     if (p) e.password = p;
     else if (v.confirm !== v.password) e.confirm = 'The two passwords do not match.';
@@ -137,6 +149,7 @@ const StaffAccounts = (() => {
     const parts = [badge(a.status, a.status === 'Active')];
     if (a.locked) parts.push('<span class="badge badge--warn" title="Too many wrong passwords: sign-in is paused for a few minutes">Paused</span>');
     if (a.staffStatus && a.staffStatus !== 'Active') parts.push('<span class="badge badge--neutral" title="The staff record is inactive, so this account cannot sign in">Staff inactive</span>');
+    if (a.passwordChangeRequired) parts.push('<span class="badge badge--info" title="The password was set by an administrator: they must choose their own at their next sign-in">New password due</span>');
     return parts.join(' ');
   }
 
@@ -151,13 +164,14 @@ const StaffAccounts = (() => {
           <span class="cell-sub">${a.designation ? esc(a.designation) : (a.isMechanic ? 'Mechanic' : 'Staff')}</span>
         </td>
         <td data-label="Staff ID" class="stf-nowrap">${esc(a.staffId)}</td>
-        <td data-label="Username" class="stf-nowrap">${esc(a.username)}</td>
+        <td data-label="Username" class="stf-nowrap"><span class="cell-main">${esc(a.username)}</span>${a.email ? `<span class="cell-sub">${esc(a.email)}</span>` : ''}</td>
         <td data-label="Role">${esc(a.role)}</td>
         <td data-label="Account Status">${statusCell(a)}</td>
         <td data-label="Last Sign-in" class="stf-nowrap">${a.lastLoginAt ? esc(fmtWhen(a.lastLoginAt)) : muted('Never')}</td>
         <td data-label="Actions">
           <div class="row-actions">
             <button type="button" class="icon-btn icon-btn--sm" data-action="view" data-id="${esc(a.id)}" title="View ${esc(a.username)}" aria-label="View account ${esc(a.username)}">${ICON.view}</button>
+            <button type="button" class="icon-btn icon-btn--sm" data-action="contact" data-id="${esc(a.id)}" title="Edit e-mail and mobile for ${esc(a.username)}" aria-label="Edit e-mail and mobile for ${esc(a.username)}">${ICON.edit}</button>
             <button type="button" class="icon-btn icon-btn--sm" data-action="password" data-id="${esc(a.id)}" title="Set a new password for ${esc(a.username)}" aria-label="Set a new password for ${esc(a.username)}">${ICON.key}</button>
             <button type="button" class="icon-btn icon-btn--sm${active ? ' uac-danger' : ''}" data-action="${toggle}" data-id="${esc(a.id)}"
               title="${esc(blocked || `${active ? 'Deactivate' : 'Activate'} ${a.username}`)}" aria-label="${active ? 'Deactivate' : 'Activate'} account ${esc(a.username)}"${blocked ? ' disabled' : ''}>${active ? ICON.off : ICON.on}</button>
@@ -286,6 +300,7 @@ const StaffAccounts = (() => {
     setControls(true);
     fillRoles();
     who();
+    renderPassphrase();
     renderList();
     return true;
   }
@@ -359,7 +374,11 @@ const StaffAccounts = (() => {
               html: `<input class="input" type="text" id="ua-username" name="username" maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-required="true" aria-describedby="ua-username-hint ua-username-err">` })}
             ${field({ id: 'ua-role', label: 'Role', required: true, err: 'role', hint: 'What this person may do. Only roles you may give are listed (Roles & Permissions).',
               html: `<select class="select" id="ua-role" name="role" aria-describedby="ua-role-hint ua-role-err"><option value="">Choose a role</option>${assignableRoles().map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('')}</select>` })}
-            ${field({ id: 'ua-password', label: 'Password', required: true, err: 'password', hint: `At least ${PASSWORD_MIN} characters, not containing the username. Give it to the person privately.`, html: pwInput('ua-password', 'password', 'new-password') })}
+            ${field({ id: 'ua-email', label: 'E-mail (optional)', err: 'email', hint: 'Can be used to sign in. Must not be used by another account.',
+              html: '<input class="input" type="email" id="ua-email" name="email" maxlength="160" autocomplete="off" aria-describedby="ua-email-hint ua-email-err">' })}
+            ${field({ id: 'ua-mobile', label: 'Mobile (optional)', err: 'mobile',
+              html: '<input class="input" type="tel" id="ua-mobile" name="mobile" maxlength="20" autocomplete="off" aria-describedby="ua-mobile-err">' })}
+            ${field({ id: 'ua-password', label: 'Temporary password', required: true, err: 'password', hint: `At least ${PASSWORD_MIN} characters, not containing the username. Give it to the person privately: they must choose their own at their first sign-in.`, html: pwInput('ua-password', 'password', 'new-password') })}
             ${field({ id: 'ua-confirm', label: 'Repeat password', required: true, err: 'confirm', hint: 'Type the same password again.', html: pwInput('ua-confirm', 'confirm', 'new-password') })}
           </div>
         </form>`,
@@ -383,11 +402,14 @@ const StaffAccounts = (() => {
       const v = {
         staffId: pick.value, username: user.value.trim().toLowerCase(), role: form.querySelector('#ua-role').value,
         password: form.querySelector('#ua-password').value, confirm: form.querySelector('#ua-confirm').value,
+        email: ((form.querySelector('#ua-email') || {}).value || '').trim().toLowerCase(),
+        mobile: ((form.querySelector('#ua-mobile') || {}).value || '').trim(),
       };
       const errors = validateCreate(v);
       if (Object.keys(errors).length) { showErrors(form, errors); return; }
       showErrors(form, {});
-      const res = await Storage.create('accounts', { staffId: v.staffId, username: v.username, role: v.role, password: v.password });
+      const res = await Storage.create('accounts', { staffId: v.staffId, username: v.username, role: v.role, password: v.password,
+        ...(v.email ? { email: v.email } : {}), ...(v.mobile ? { mobile: v.mobile } : {}) });
       forgetPasswords(form);
       if (!Utils.wrote(res, form)) { markInvalid(form); return; }
       Utils.Modal.close();
@@ -403,7 +425,7 @@ const StaffAccounts = (() => {
         <form id="uacPwForm" novalidate>
           <p class="uac-hint">${a.self
             ? 'This is your own account. After saving you will be signed out and need to sign in with the new password.'
-            : `${esc(a.staffName)} will be signed out everywhere and must use the new password. Give it to them privately.`}</p>
+            : `${esc(a.staffName)} will be signed out everywhere. This is a <strong>temporary</strong> password: give it to them privately; they must choose their own the next time they sign in.`}</p>
           ${field({ id: 'ua-newpw', label: 'New password', required: true, err: 'password', hint: `At least ${PASSWORD_MIN} characters, not containing the username.`, html: pwInput('ua-newpw', 'password', 'new-password') })}
           ${field({ id: 'ua-newpw2', label: 'Repeat new password', required: true, err: 'confirm', hint: 'Type the same password again.', html: pwInput('ua-newpw2', 'confirm', 'new-password') })}
         </form>`,
@@ -423,9 +445,72 @@ const StaffAccounts = (() => {
       if (!Utils.wrote(res, form)) { markInvalid(form); return; }
       Utils.Modal.close();
       if (a.self) { Utils.toast('Your password was changed. Please sign in again.', 'success'); setTimeout(() => location.reload(), 900); return; }
-      Utils.toast(`A new password was set for “${a.username}”. They have been signed out everywhere.`, 'success');
+      Utils.toast(`A temporary password was set for “${a.username}”. They have been signed out everywhere and will choose their own at their next sign-in.`, 'success');
       renderList();
     }));
+  }
+
+  /** Edit an account's e-mail and mobile (either may be cleared). */
+  function openContact(a) {
+    const ov = Utils.Modal.open({
+      title: `E-mail and mobile — ${a.username}`,
+      body: `
+        <form id="uacContactForm" novalidate>
+          <p class="uac-hint">The e-mail address can be used to sign in, so no two accounts may share one. Leave a field empty to remove it.</p>
+          ${field({ id: 'uc-email', label: 'E-mail', err: 'email', html: `<input class="input" type="email" id="uc-email" maxlength="160" autocomplete="off" value="${esc(a.email || '')}" aria-describedby="uc-email-err">` })}
+          ${field({ id: 'uc-mobile', label: 'Mobile', err: 'mobile', html: `<input class="input" type="tel" id="uc-mobile" maxlength="20" autocomplete="off" value="${esc(a.mobile || '')}" aria-describedby="uc-mobile-err">` })}
+        </form>`,
+      footer: `
+        <button type="button" class="btn btn--ghost" data-modal-close>Cancel</button>
+        <button type="button" class="btn btn--primary" data-save>Save</button>`,
+    });
+    if (!ov) return;
+    const form = ov.querySelector('#uacContactForm');
+    form.addEventListener('submit', e => { e.preventDefault(); ov.querySelector('[data-save]').click(); });
+    ov.querySelector('[data-save]').addEventListener('click', Utils.saving(async () => {
+      const v = { email: form.querySelector('#uc-email').value.trim().toLowerCase(), mobile: form.querySelector('#uc-mobile').value.trim() };
+      const errors = contactProblems(v);
+      if (Object.keys(errors).length) { showErrors(form, errors); return; }
+      const res = await Storage.update('accounts', a.id, { email: v.email, mobile: v.mobile });
+      if (!Utils.wrote(res, form)) { markInvalid(form); return; }
+      Utils.Modal.close();
+      Utils.toast(`Contact details saved for “${a.username}”.`, 'success');
+      renderList();
+    }));
+  }
+
+  /* The shared workshop passphrase (0019): shown to a Super Admin signed in
+     with their own account -- the only one the server lets switch it. */
+  function renderPassphrase() {
+    const box = $('uacPassphrase');
+    if (!box) return;
+    const mine = Storage.account;
+    const show = !!(mine && Storage.fullAccess && !mine.passwordChangeRequired);
+    box.hidden = !show;
+    if (!show) return;
+    const on = Storage.sharedPassphrase;
+    $('uacPassText').textContent = on
+      ? 'Still allowed. Anyone who knows it gets full access, and it does not say who they are. Switch it off once every staff member signs in with their own account.'
+      : 'Switched off. Only personal accounts (and the server\'s machine token) can sign in.';
+    const btn = $('uacPassToggle');
+    btn.textContent = on ? 'Switch off the passphrase' : 'Allow the passphrase again';
+    btn.className = `btn btn--sm ${on ? 'btn--danger' : 'btn--ghost'}`;
+  }
+  function togglePassphrase() {
+    const on = Storage.sharedPassphrase;
+    Utils.Modal.confirm({
+      title: on ? 'Switch off the shared passphrase?' : 'Allow the shared passphrase again?',
+      message: on
+        ? 'Nobody will be able to sign in with the workshop passphrase, and everyone signed in with it now is signed out. Make sure every staff member who needs access has a personal account and has signed in with it.'
+        : 'Anyone who knows the workshop passphrase will be able to sign in again, with full access.',
+      confirmText: on ? 'Switch off' : 'Allow it',
+      onConfirm: async () => {
+        const res = await Api.put('/session/passphrase', { enabled: !on });
+        if (!res.ok) { Utils.toast(res.message || 'The setting could not be changed.', 'error'); return; }
+        Utils.toast(on ? 'The shared passphrase is switched off.' : 'The shared passphrase is allowed again.', 'success');
+        setTimeout(() => location.reload(), 600);
+      },
+    });
   }
 
   function detailHtml(a) {
@@ -436,7 +521,10 @@ const StaffAccounts = (() => {
         ${item('Username', esc(a.username))}
         ${item('Staff member', `${esc(a.staffName)} (${esc(a.staffId)})`)}
         ${item('Designation', a.designation ? esc(a.designation) : muted('Not set'))}
+        ${item('E-mail', a.email ? esc(a.email) : muted('Not set'))}
+        ${item('Mobile', a.mobile ? esc(a.mobile) : muted('Not set'))}
         ${item('Role', esc(a.role))}
+        ${item('Password', a.passwordChangeRequired ? 'Temporary — they must choose their own at the next sign-in' : 'Chosen by the person')}
         ${item('Account status', statusCell(a))}
         ${item('Last sign-in', a.lastLoginAt ? esc(fmtWhen(a.lastLoginAt)) : muted('Never'))}
         ${item('Password last set', a.passwordChangedAt ? esc(fmtWhen(a.passwordChangedAt)) : muted('Unknown'))}
@@ -505,6 +593,7 @@ const StaffAccounts = (() => {
     const clear = $('uacClear'), create = $('uacCreate');
     if (clear) clear.addEventListener('click', clearFilters);
     if (create) create.addEventListener('click', openCreate);
+    const passToggle = $('uacPassToggle'); if (passToggle) passToggle.addEventListener('click', togglePassphrase);
     if (body) body.addEventListener('click', e => {
       const btn = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
       if (!btn || btn.disabled) return;
@@ -517,6 +606,7 @@ const StaffAccounts = (() => {
         case 'create': openCreate(); break;
         case 'view': openDetail(id, btn); break;
         case 'password': { const a = Storage.getById('accounts', id); if (a) openPassword(a); break; }
+        case 'contact': { const a = Storage.getById('accounts', id); if (a) openContact(a); break; }
         case 'deactivate': setStatus(id, 'Inactive', btn); break;
         case 'activate': setStatus(id, 'Active', btn); break;
         default: break;

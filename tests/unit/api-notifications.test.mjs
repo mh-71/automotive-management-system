@@ -53,7 +53,7 @@ if (!DatabaseSync) {
 }
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const MIGRATIONS = readdirSync(join(ROOT, 'migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f) && f.slice(0, 4) <= '0018').sort();
+const MIGRATIONS = readdirSync(join(ROOT, 'migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f) && f.slice(0, 4) <= '0019').sort();
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -128,6 +128,12 @@ function fresh() {
     const text = await res.text();
     await Promise.all(pending.splice(0));
     let json = null; try { json = JSON.parse(text); } catch { /* empty */ }
+    // 0019: an account created by an administrator must choose its own password at
+    // first sign-in. This suite is about something else, so that step is taken
+    // for it here; tests/unit/api-login.test.mjs covers the step itself.
+    if (method === 'POST' && /^\/api\/accounts(\/USR-\d+\/password)?$/.test(path) && res.status < 300 && json?.data?.id) {
+      DB.raw.prepare('UPDATE user_accounts SET password_change_required = 0 WHERE id = ?').run(json.data.id);
+    }
     return { status: res.status, body: json, text, cookie: (res.headers.get('set-cookie') || '').split(';')[0] };
   };
   const one = (sql, ...a) => DB.raw.prepare(sql).get(...a);

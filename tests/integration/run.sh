@@ -203,6 +203,7 @@ COUNTS=$(d1 "SELECT (SELECT count(*) FROM services) + (SELECT count(*) FROM cust
                     + (SELECT count(*) FROM user_accounts)
                     + (SELECT count(*) FROM attendance)
                     + (SELECT count(*) FROM notifications) + (SELECT count(*) FROM notification_reads)
+                    + (SELECT count(*) FROM auth_throttle)
                     + (SELECT count(*) FROM settings)
                     + (SELECT count(*) FROM roles WHERE id > 'ROL-0008')
                     + (SELECT sum(last_value) FROM id_counters WHERE collection <> 'roles')

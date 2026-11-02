@@ -257,14 +257,19 @@ console.log('\n-- 3. The whole route surface, derived from the registry --');
   // And the same routes DO work once authenticated, so the gate is what is
   // refusing them rather than the route being broken.
   const stillRefused = [];
+  // 0019: two routes belong to a PERSON's own session, so the machine token is
+  // refused there by design: changing your own password, and a Super Admin
+  // switching the shared passphrase on or off (tests/unit/api-login.test.mjs).
+  const PERSONAL = new Set(['POST /api/session/password', 'PUT /api/session/passphrase']);
   for (const route of mutations) {
+    if (PERSONAL.has(route)) continue;
     const [method, path] = route.split(' ');
     const res = await call(concrete(path), {
       method, headers: bearer(TOKEN), body: { probe: true }, env: authed(),
     });
     if (res.status === 401) stillRefused.push(route);
   }
-  check('   ...and every one of them lets a valid token through', stillRefused, []);
+  check('   ...and every one of them lets a valid token through (except the two that need a person\'s own session)', stillRefused, []);
 
   // C-12 inverted this. Reads were public; they are business data, so now
   // they are not. The assertion keeps its shape and its purpose -- enumerate
@@ -300,7 +305,7 @@ console.log('\n-- 3. The whole route surface, derived from the registry --');
   // `accounts` (0009): whether a staff member may sign in with their own
   // account here. Still nothing about who is signed in for a caller without one.
   check('   ...and says only whether this caller is signed in, and how signing in works here',
-    Object.keys((await sess.json()).data).sort(), ['accounts', 'authenticated', 'passphrase']);
+    Object.keys((await sess.json()).data).sort(), ['accounts', 'authenticated', 'passphrase', 'sharedPassphrase']);
 }
 {
   // Health is a GET; the gate never sees it, and a wrong method there is

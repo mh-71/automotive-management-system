@@ -128,6 +128,13 @@ console.log('-- 1. helpers --');
   check('only roles this user may give are offered: active, and within their own permissions (canManage)', S.ROLES.filter(r => r.assignable).map(r => r.name), ['Super Admin', 'Mechanic']);
   S.setRoles(ROLES, false);
   check('   ...none at all without Roles: assign', S.ROLES.filter(r => r.assignable).length, 0);
+  S.setRoles(ROLES, true);
+  check('0019: optional e-mail and mobile are checked; a username may not look like a Staff ID', [
+    v({ email: 'not-an-email' }), v({ email: 'kamal@example.com', mobile: '+880 1711-000002' }), v({ mobile: 'call me' }), v({ username: 'stf-0002' })],
+  [['email'], [], ['mobile'], ['username']]);
+  const shown = S.rowHtml({ ...ACCOUNTS[0], email: 'jamal@example.com', passwordChangeRequired: true });
+  ok('   ...a row shows the e-mail under the username, and "New password due" for a temporary password', /<span class="cell-sub">jamal@example\.com<\/span>/.test(shown) && /New password due/.test(shown), shown);
+  ok('   ...and offers editing the e-mail and mobile', /data-action="contact"/.test(shown), '');
   const mine = S.rowHtml(ACCOUNTS[0]), other = S.rowHtml(ACCOUNTS[1]);
   ok('a row escapes every value', !other.includes('<img src=x') && other.includes('&lt;img src=x onerror=alert(1)&gt;'), other);
   ok('your own account is marked, and its Deactivate is disabled with the reason', /badge--neutral">You</.test(mine) && /data-action="deactivate"[^>]*title="You cannot deactivate your own account\."[^>]*disabled/.test(mine), mine);

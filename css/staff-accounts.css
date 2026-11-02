@@ -79,3 +79,13 @@
 @media (max-width: 640px) {
   [data-page="staff-accounts"] .uac-state { flex-direction: column; gap: 10px; }
 }
+
+/* The shared workshop passphrase switch (0019): Super Admin only. */
+[data-page="staff-accounts"] .uac-passphrase {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  margin: 0 0 16px; padding: 14px 18px; border: 1px solid var(--line); border-left: 4px solid var(--warn);
+  border-radius: var(--radius-sm); background: var(--warn-soft);
+}
+[data-page="staff-accounts"] .uac-passphrase[hidden] { display: none; }
+[data-page="staff-accounts"] .uac-passphrase__title { margin: 0 0 4px; font-size: .9rem; font-weight: 700; color: var(--text); }
+[data-page="staff-accounts"] .uac-passphrase__text { margin: 0; font-size: .84rem; color: var(--text-2); max-width: 70ch; }

@@ -56,7 +56,7 @@
    ============================================================ */
 
 import { fail } from './http.js';
-import { loadSessionAccount, ACCOUNT_ID } from './accounts.js';
+import { loadSessionAccount, passphraseEnabled, ACCOUNT_ID } from './accounts.js';
 
 /** The methods that can change data. Kept exported: routes still ask. */
 export const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -303,7 +303,11 @@ export function principalOf(request) {
 async function sessionPrincipal(request, env, config, nowSeconds) {
   const cookie = readCookie(request, SESSION_COOKIE);
   if (!cookie) return null;
-  if (await sessionIsValid(cookie, config.secret, nowSeconds)) return { kind: 'passphrase' };
+  // A passphrase session counts only while the passphrase is still allowed
+  // (0019): switching it off ends the sessions it already gave out, too.
+  if (await sessionIsValid(cookie, config.secret, nowSeconds)) {
+    return (await passphraseEnabled(env)) ? { kind: 'passphrase' } : null;
+  }
   const claim = await accountSessionClaim(cookie, config.secret, nowSeconds);
   if (!claim) return null;
   return loadSessionAccount(env, claim.accountId, claim.sessionVersion);

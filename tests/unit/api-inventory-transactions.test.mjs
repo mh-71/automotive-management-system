@@ -355,7 +355,7 @@ console.log('\n-- 11. Route registration --');
     },
   };
   const routes = (await (await call('/api/health', { DB: db })).json()).data.routes;
-  check('health advertises 149 routes', routes.length, 149);
+  check('health advertises 151 routes', routes.length, 151);
   ok_('advertises the ledger list', routes.includes('GET /api/inventory-transactions'));
   ok_('advertises the ledger detail', routes.includes('GET /api/inventory-transactions/:id'));
   // C-4 gave the ledger POST and nothing else: a movement is recorded and

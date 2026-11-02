@@ -56,12 +56,20 @@
     <section class="uac-note" aria-labelledby="uacNoteTitle">
       <h2 class="uac-note__title" id="uacNoteTitle">How accounts work</h2>
       <ul class="uac-note__list">
-        <li>An account lets one staff member sign in with <strong>their own username and password</strong> instead of the shared workshop passphrase, which keeps working.</li>
-        <li>Every account has <strong>full access (Administrator)</strong>. Restricted roles such as Mechanic or Accountant need Roles &amp; Permissions to be enforced first, so they cannot be given yet.</li>
+        <li>An account lets one staff member sign in with <strong>their own username, e-mail address or Staff ID</strong> and a password.</li>
+        <li>Each account has <strong>one role</strong> (Roles &amp; Permissions), and the server checks it on every request. You can only give roles within your own permissions.</li>
+        <li>A password you set here is <strong>temporary</strong>: the person must choose their own the next time they sign in, so nobody else ever knows it.</li>
         <li>Deactivating an account, or setting a new password, <strong>signs that person out everywhere</strong> straight away. Someone whose staff record is inactive cannot sign in.</li>
-        <li>Password recovery by e-mail is not available. An administrator sets a new password here instead.</li>
+        <li>Password recovery by e-mail is not available (no e-mail delivery service is connected). An administrator sets a temporary password here instead.</li>
       </ul>
       <p class="uac-note__who" id="uacWho" aria-live="polite"></p>
+    </section>
+    <section class="uac-passphrase" id="uacPassphrase" aria-labelledby="uacPassTitle" hidden>
+      <div>
+        <h2 class="uac-passphrase__title" id="uacPassTitle">Shared workshop passphrase</h2>
+        <p class="uac-passphrase__text" id="uacPassText"></p>
+      </div>
+      <button type="button" class="btn btn--sm" id="uacPassToggle"></button>
     </section>
     <section class="stats-grid stf-stats" aria-label="Account summary">
       <div class="stat stf-stat">
