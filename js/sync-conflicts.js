@@ -43,7 +43,7 @@ const SyncConflicts = (() => {
     const keys = [...new Set([...Object.keys(local), ...Object.keys(server)])].filter((k) => !['_sync', 'uuid'].includes(k));
     if (!keys.length) return '';
     return `<div class="table-wrap"><table class="table ofs-table sc-compare"><thead><tr><th scope="col">Field</th>${base ? '<th scope="col">When the device last saw it</th>' : ''}<th scope="col">This device (offline)</th><th scope="col">Server now</th></tr></thead><tbody>${
-      keys.map((k) => `<tr><th scope="row">${esc(k)}</th>${base ? `<td>${esc(show(base[k]))}</td>` : ''}<td>${esc(show(local[k]))}</td><td>${esc(show(server[k]))}</td></tr>`).join('')
+      keys.map((k) => `<tr><th scope="row">${esc(k)}</th>${base ? `<td data-label="Last seen">${esc(show(base[k]))}</td>` : ''}<td data-label="This device">${esc(show(local[k]))}</td><td data-label="Server now">${esc(show(server[k]))}</td></tr>`).join('')
     }</tbody></table></div>`;
   }
 
@@ -59,7 +59,10 @@ const SyncConflicts = (() => {
   }
 
   async function loadList() {
-    const res = await Api.get(`/sync/conflicts?status=${encodeURIComponent(state.status)}`);
+    const asked = state.status;
+    const res = await Api.get(`/sync/conflicts?status=${encodeURIComponent(asked)}`);
+    // The tab changed while this was loading: the newer request draws the list.
+    if (asked !== state.status) return;
     if (!res.ok) {
       $('scList').innerHTML = `<tr><td colspan="6" class="ofs-empty">${esc(res.message || 'The conflicts could not be read.')}</td></tr>`;
       return;

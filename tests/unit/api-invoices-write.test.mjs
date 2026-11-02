@@ -83,7 +83,9 @@ function stubDB({
     all(fragment) { return calls.filter((c) => c.sql.includes(fragment)); },
     prepare(sql) {
       const entry = { sql, binds: null };
-      calls.push(entry);
+      // The router logs each successful write for offline sync (0020, lib/changes.js)
+      // AFTER it commits; these assertions are about the route's own statements.
+      if (!/INSERT INTO change_log/.test(sql)) calls.push(entry);
       const stmt = {
         bind(...args) { entry.binds = args; return stmt; },
         async first() {

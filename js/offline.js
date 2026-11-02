@@ -246,8 +246,8 @@ const Offline = (() => {
     // from this tab, or from the server's escrow -- so unsynced work survives.
     const journalKey = opts.journalKey || null;
     await db().put('users', { ...base, salt: b64(salt), iterations: PBKDF2_ITERATIONS, privIv: b64(iv), wrappedPrivateKey: b64(wrapped),
-      publicKey: b64(spki), enrolledAt: new Date().toISOString(),
-      ...(journalKey ? { journalKeyRsa: b64(await subtle().encrypt({ name: 'RSA-OAEP' }, pair.publicKey, unb64(journalKey))) } : {}) });
+      publicKey: b64(spki), enrolledAt: new Date().toISOString() });
+    if (journalKey) await putJournalWraps(account.id, { rsaWrap: await wrapRaw(unb64(journalKey), pair.publicKey) });
     // A new key pair: any older copy could no longer be opened, so it goes.
     // (The journal is NOT removed: it can still be opened with the escrow.)
     await db().del('snapshots', account.id);
@@ -272,7 +272,7 @@ const Offline = (() => {
     const ciphertext = await subtle().encrypt({ name: 'AES-GCM', iv }, key, plain);
     const wrappedKey = await subtle().wrapKey('raw', key, publicKey, { name: 'RSA-OAEP' });
     await db().put('snapshots', { accountId, savedAt, schema: SNAPSHOT_SCHEMA, iv: b64(iv), ciphertext: b64(ciphertext), wrappedKey: b64(wrappedKey), size: plain.length });
-    await db().put('users', { ...user, lastOnlineAt: savedAt });
+    await db().put('users', { ...((await db().get('users', accountId)) || user), lastOnlineAt: savedAt });
     return true;
   }
 
@@ -325,7 +325,7 @@ const Offline = (() => {
     const window = accessWindow(data, user, now);
     if (!window.ok) return window;
     // Remember the latest time seen, so a clock turned back later is noticed.
-    if (!(Number(user.lastSeenAt) >= window.now)) await db().put('users', { ...user, lastSeenAt: window.now });
+    if (!(Number(user.lastSeenAt) >= window.now)) await db().put('users', { ...((await db().get('users', user.accountId)) || user), lastSeenAt: window.now });
     return { ok: true, data, until: window.until, user: { accountId: user.accountId, username: user.username, name: user.name, staffId: user.staffId, role: user.role } };
   }
 
@@ -351,19 +351,41 @@ const Offline = (() => {
 
   /* ---------- the journal: changes made offline (js/sync.js) ---------- */
 
-  /** This person's journal key (base64), unwrapped with their private key; made (and saved) if they have none yet. */
+  /* The journal key's two wraps live on the JOURNAL's own row (rsaWrap for the
+     password, escrowWrap for the server escrow) -- never on the person's entry,
+     which saving the copy rewrites. Always re-read before writing. */
+  async function putJournalWraps(accountId, wraps) {
+    const row = (await db().get('journals', accountId)) || { accountId, savedAt: null, summary: { pending: 0, conflict: 0, failed: 0 } };
+    await db().put('journals', { ...row, ...wraps, accountId });
+  }
+
+  /** RSA-OAEP key wrapping of a raw AES key (the private key may only unwrap keys, never decrypt data). */
+  async function wrapRaw(raw, publicKey) {
+    const aes = await subtle().importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+    return b64(await subtle().wrapKey('raw', aes, publicKey, { name: 'RSA-OAEP' }));
+  }
+  async function rsaWrapFor(accountId, raw) {
+    const user = await db().get('users', accountId);
+    if (!user || !user.publicKey) return null;
+    const publicKey = await subtle().importKey('spki', unb64(user.publicKey), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['wrapKey']);
+    return wrapRaw(raw, publicKey);
+  }
+
+  /** This person's journal key (base64), with their private key; made (and saved) if they have no journal yet. */
   async function journalKeyFor(user, privateKey) {
-    try {
-      if (user.journalKeyRsa) {
-        return b64(await subtle().decrypt({ name: 'RSA-OAEP' }, privateKey, unb64(user.journalKeyRsa)));
+    const row = await db().get('journals', user.accountId);
+    if (row && row.rsaWrap) {
+      try {
+        const aes = await subtle().unwrapKey('raw', unb64(row.rsaWrap), privateKey, { name: 'RSA-OAEP' }, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+        return b64(await subtle().exportKey('raw', aes));
       }
-    } catch (e) { /* fall through: a damaged entry -- the escrow may still open the journal online */ }
-    const journal = await db().get('journals', user.accountId);
-    if (journal) return null;   // a journal exists under a key this password cannot open: only the escrow can (online)
+      catch (e) { /* a wrap for an older key pair: the escrow may still open it online */ }
+    }
+    // A journal with content (or an escrow wrap of a key this password cannot see)
+    // is only opened with the escrow, online -- never replaced by a new key here.
+    if (row && (row.ciphertext || row.escrowWrap)) return null;
     const raw = random(32);
-    const publicKey = await subtle().importKey('spki', unb64(user.publicKey), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
-    const fresh = (await db().get('users', user.accountId)) || user;
-    await db().put('users', { ...fresh, journalKeyRsa: b64(await subtle().encrypt({ name: 'RSA-OAEP' }, publicKey, raw)) });
+    await putJournalWraps(user.accountId, { rsaWrap: await rsaWrapFor(user.accountId, raw) });
     return b64(raw);
   }
 
@@ -384,33 +406,29 @@ const Offline = (() => {
     if (!escrowB64) return null;
     const ek = await subtle().importKey('raw', unb64(escrowB64), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
     const journal = await db().get('journals', accountId);
-    const user = await db().get('users', accountId);
-    let raw = null;
     if (journal && journal.escrowWrap) {
+      let raw;
       try { raw = new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv: unb64(journal.escrowWrap.iv) }, ek, unb64(journal.escrowWrap.ct))); }
       catch (e) { return null; }   // another person's escrow, or a rotated server secret
-    } else if (journal) {
-      return null;   // made before escrow existed and not openable without the password
+      if (!journal.rsaWrap) await putJournalWraps(accountId, { rsaWrap: await rsaWrapFor(accountId, raw) });
+      return b64(raw);
     }
-    if (!raw) raw = random(32);
+    // A journal whose key only the password knows: it is opened at the next sign-in with the password.
+    if (journal && (journal.ciphertext || journal.rsaWrap)) return null;
+    const raw = random(32);
     const iv = random(12);
-    const escrowWrap = { iv: b64(iv), ct: b64(await subtle().encrypt({ name: 'AES-GCM', iv }, ek, raw)) };
-    if (!journal) await db().put('journals', { accountId, escrowWrap, savedAt: null, summary: { pending: 0, conflict: 0, failed: 0 } });
-    if (user && !user.journalKeyRsa && user.publicKey) {
-      const publicKey = await subtle().importKey('spki', unb64(user.publicKey), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
-      await db().put('users', { ...user, journalKeyRsa: b64(await subtle().encrypt({ name: 'RSA-OAEP' }, publicKey, raw)) });
-    }
+    await putJournalWraps(accountId, { escrowWrap: { iv: b64(iv), ct: b64(await subtle().encrypt({ name: 'AES-GCM', iv }, ek, raw)) }, rsaWrap: await rsaWrapFor(accountId, raw) });
     return b64(raw);
   }
 
   /** Make sure the journal row carries an escrow wrap of this key (online, after an offline unlock). */
   async function ensureEscrow(accountId, keyB64, escrowB64) {
     if (!keyB64 || !escrowB64) return false;
-    const journal = (await db().get('journals', accountId)) || { accountId, savedAt: null, summary: { pending: 0, conflict: 0, failed: 0 } };
-    if (journal.escrowWrap) return true;
+    const journal = await db().get('journals', accountId);
+    if (journal && journal.escrowWrap) return true;
     const ek = await subtle().importKey('raw', unb64(escrowB64), { name: 'AES-GCM' }, false, ['encrypt']);
     const iv = random(12);
-    await db().put('journals', { ...journal, escrowWrap: { iv: b64(iv), ct: b64(await subtle().encrypt({ name: 'AES-GCM', iv }, ek, unb64(keyB64))) } });
+    await putJournalWraps(accountId, { escrowWrap: { iv: b64(iv), ct: b64(await subtle().encrypt({ name: 'AES-GCM', iv }, ek, unb64(keyB64))) } });
     return true;
   }
 

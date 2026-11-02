@@ -39,9 +39,11 @@ export async function logChanges(env, entries) {
   if (!env || !env.DB || !entries.length) return;
   const at = new Date().toISOString();
   try {
-    await env.DB.batch(entries.map((e) => env.DB.prepare(
-      'INSERT INTO change_log (collection, record_id, op, changed_at) VALUES (?1, ?2, ?3, ?4)'
-    ).bind(e.collection, e.id, e.op, at)));
+    // One statement for every entry: a single round trip, and not a batch of
+    // its own (the write it records has already committed).
+    const rows = entries.map((_, i) => `(?${i * 3 + 1}, ?${i * 3 + 2}, ?${i * 3 + 3}, ?${entries.length * 3 + 1})`).join(', ');
+    await env.DB.prepare(`INSERT INTO change_log (collection, record_id, op, changed_at) VALUES ${rows}`)
+      .bind(...entries.flatMap((e) => [e.collection, e.id, e.op]), at).run();
   } catch (err) {
     // Before 0020 is applied the table does not exist; a write must not fail for that.
     console.error('change_log: not recorded:', err && err.message);

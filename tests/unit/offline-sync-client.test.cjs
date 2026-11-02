@@ -247,12 +247,19 @@ const DAY = 86400000;
     await tabB.ctx.Sync.update('customers', ids['OFF-A-CUS-0001'], { name: 'Renamed' });
     const third = page({ fetch: server }); await third.ctx.Storage.hydrate();
     check('two tabs changing the journal: both changes are kept (each re-reads it before writing)', third.ctx.Sync.outbox().filter((o) => o.kind === 'update').map((o) => o.targetId).sort(), ['CUS-0001', ids['OFF-A-CUS-0001']].sort());
+    // Found by the two-computer browser run: saving the copy while the journal key
+    // is being set up must not lose it (the wraps live on the journal's own row).
+    const P2 = { id: 'USR-0006', username: 'second', name: 'Second Person', staffId: 'STF-0006', role: 'Service Advisor' };
+    await fresh.ctx.Offline.enroll(P2, 'Second-Own-Pass-1', 'second');
+    await Promise.all([fresh.ctx.Offline.journalKeyFromEscrow(P2.id, Buffer.alloc(32, 3).toString('base64')), fresh.ctx.Offline.saveSnapshot(P2.id, DATA)]);
+    const u2 = await fresh.ctx.Offline.unlock('second', 'Second-Own-Pass-1');
+    ok('saving the copy while the journal key is set up does not lose it: the password still opens the journal', u2.ok && typeof u2.journalKey === 'string', u2.code);
     mode = 'revoked';
     memory.clear();
     const rv = page({ fetch: server });
     await rv.ctx.Storage.hydrate();
     const out = await rv.ctx.Sync.run({ reason: 'test' });
-    check('a device revoked by an administrator: the engine stops, offline access closes, the changes are kept', [out.code, (await rv.ctx.Offline.revoked()) !== null, (await sharedStore.all('journals')).length], ['device_revoked', true, 1]);
+    check('a device revoked by an administrator: the engine stops, offline access closes, the changes are kept', [out.code, (await rv.ctx.Offline.revoked()) !== null, (await sharedStore.all('journals')).some((j) => j.accountId === ACCOUNT.id && j.ciphertext && j.summary.pending + j.summary.failed > 0)], ['device_revoked', true, true]);
   }
 
   process.exit(summary('offline-sync-client') === 0 ? 0 : 1);

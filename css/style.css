@@ -617,6 +617,6 @@ a.nav__sub:hover { background: rgba(255, 255, 255, .06); color: #fff; text-decor
 .login__badge { display: inline-block; margin-bottom: 8px; }
 
 /* Offline changes kept apart from confirmed records (js/app.js showPendingPanel). */
-.pending-panel { margin-bottom: 16px; border-left: 4px solid var(--warning, #d97706); }
+.pending-panel { margin-bottom: 16px; border-left: 4px solid var(--warn); }
 .pending-panel .card__head h2 { font-size: 1rem; margin: 0; }
 .offline-bar__count { font-weight: 600; }
