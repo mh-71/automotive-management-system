@@ -205,7 +205,12 @@ console.log('\n-- B. every route has a permission --');
   check('no protected route falls through to "full access only"', unnamed, []);
   const bad = protectedRoutes.filter((x) => { const n = needOf(x); return n !== AUTHENTICATED && ![].concat(n).every(isPermission); });
   check('   ...each names permissions that exist in the catalog', bad, []);
-  check('   ...the only routes open to anyone signed in are reading settings', protectedRoutes.filter((x) => needOf(x) === AUTHENTICATED), ['GET /api/settings']);
+  // Offline sync (0020) adds a person's OWN device, push, pull, history and
+  // conflicts: reachable by any signed-in account, widened to everyone's only
+  // by sync.view / sync.manage inside the route (tests/unit/api-sync.test.mjs).
+  const OWN_SYNC = ['POST /api/devices/register', 'GET /api/devices', 'DELETE /api/devices/:id', 'GET /api/sync/status', 'POST /api/sync/push',
+    'GET /api/sync/pull', 'GET /api/sync/history', 'GET /api/sync/conflicts', 'GET /api/sync/conflicts/:id'];
+  check('   ...the only routes open to anyone signed in are reading settings, and a person\'s own offline sync', protectedRoutes.filter((x) => needOf(x) === AUTHENTICATED).sort(), ['GET /api/settings', ...OWN_SYNC].sort());
   const app = readFileSync(join(ROOT, 'js/app.js'), 'utf8');
   const pagePerms = [...app.slice(app.indexOf('const PAGE_PERMISSIONS'), app.indexOf('};', app.indexOf('const PAGE_PERMISSIONS'))).matchAll(/'([a-z_]+\.[a-z]+)'/g)].map((m) => m[1]);
   const requires = readdirSync(join(ROOT, 'pages')).flatMap((f) => [...readFileSync(join(ROOT, 'pages', f), 'utf8').matchAll(/data-requires="([^"]+)"/g)].map((m) => m[1]));

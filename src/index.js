@@ -143,6 +143,9 @@ import { getWebsiteBookings } from './routes/website-bookings.js';
 // a successful create/status change into a notification (lib/notifications.js).
 import { notifications, NOTIFICATION_ROUTES } from './routes/notifications.js';
 import { withNotification } from './lib/notifications.js';
+// Offline sync (0020): devices, push / pull, conflicts and invoice drafts.
+// Operations are applied through the routes above, as the person who made them.
+import { sync, SYNC_ROUTES } from './routes/sync.js';
 
 /**
  * Every collection exposes the same two shapes: a list at
@@ -318,6 +321,7 @@ const ROUTES = [
   // (routes/website-forms.js).
   'POST /api/forms/submit',
   ...NOTIFICATION_ROUTES,
+  ...SYNC_ROUTES,
   // The signed-in person's own password, and the shared passphrase switch
   // (0019): public dispatch, each checks the person's own session itself.
   'POST /api/session/password',
@@ -422,7 +426,7 @@ async function proxyWebsiteBookings() {
   }
 }
 
-export default {
+const worker = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -518,6 +522,13 @@ export default {
       return run(notifications, url, url.pathname.slice('/api/notifications/'.length));
     }
 
+    // Offline sync (0020): behind the gate; each route also checks the
+    // permission it needs (routes/sync.js). Operations are applied by calling
+    // this same Worker, so every existing rule still applies to them.
+    if (/^\/api\/(sync|devices|invoice-drafts)(\/|$)/.test(url.pathname)) {
+      return run(sync, url, (req) => worker.fetch(req, env, ctx), ctx);
+    }
+
     // The exact path only. Anything below it (/api/settings/1, and there is
     // no other id a singleton could have) is left to fall through to the
     // 404 below rather than being handed to a detail handler that does not
@@ -595,3 +606,5 @@ export default {
     return notFound(ROUTES);
   },
 };
+
+export default worker;
