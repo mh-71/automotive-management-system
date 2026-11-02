@@ -94,9 +94,17 @@ const Offline = (() => {
         // 2 (Phases 2-4): the encrypted journal of changes made offline.
         if (e.oldVersion < 2) db.createObjectStore('journals', { keyPath: 'accountId' });
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-      req.onblocked = () => reject(new Error('The offline store is open in another tab with an older version.'));
+      req.onsuccess = () => {
+        const conn = req.result;
+        // M9: when a NEWER version of the app needs to upgrade the store, this
+        // tab lets go at once instead of blocking it (the next use reopens).
+        conn.onversionchange = () => { conn.close(); opening = null; };
+        resolve(conn);
+      };
+      req.onerror = () => { opening = null; reject(req.error); };
+      // Another tab still runs an OLDER app and holds the store open: nothing is
+      // lost, but it cannot be upgraded until that tab is closed or reloaded.
+      req.onblocked = () => { opening = null; blocked = true; reject(Object.assign(new Error('BLOCKED'), { code: 'blocked' })); };
     }));
     const tx = async (store, mode, fn) => {
       const db = await open();
@@ -132,7 +140,39 @@ const Offline = (() => {
   }
 
   let store = null;
+  let blocked = false;
   const db = () => store || (store = (typeof indexedDB !== 'undefined' ? idbStore() : memoryStore()));
+
+  /** Can the store be opened right now? { ok } or { ok: false, code: 'blocked' | 'unavailable', message }. */
+  async function check() {
+    try { await db().get('meta', 'device'); blocked = false; return { ok: true }; }
+    catch (e) {
+      if (blocked || (e && e.code === 'blocked')) return { ok: false, code: 'blocked', message: 'The CRM was updated. Close every other Taqwa tab (or reload them) so this computer can finish updating its offline storage. Nothing has been lost.' };
+      return { ok: false, code: 'unavailable', message: 'This browser could not open its offline storage.' };
+    }
+  }
+
+  /**
+   * M8: ask the browser to keep this site's storage (so unsynced offline work is
+   * not cleared under storage pressure). Remembered; nothing secret.
+   * { supported, persisted }
+   */
+  async function ensurePersistent() {
+    const st = typeof navigator !== 'undefined' ? navigator.storage : null;
+    if (!st || typeof st.persist !== 'function') {
+      await db().put('meta', { key: 'persistence', supported: false, persisted: false, checkedAt: new Date().toISOString() }).catch(() => {});
+      return { supported: false, persisted: false };
+    }
+    let persisted = false;
+    try { persisted = typeof st.persisted === 'function' ? await st.persisted() : false; } catch (e) { persisted = false; }
+    if (!persisted) { try { persisted = await st.persist(); } catch (e) { persisted = false; } }
+    await db().put('meta', { key: 'persistence', supported: true, persisted: !!persisted, checkedAt: new Date().toISOString() }).catch(() => {});
+    return { supported: true, persisted: !!persisted };
+  }
+  async function persistence() {
+    try { const r = await db().get('meta', 'persistence'); return r ? { supported: r.supported, persisted: r.persisted, checkedAt: r.checkedAt } : null; }
+    catch (e) { return null; }
+  }
   /** Use another store (tests). */
   function useStore(s) { store = s; }
 
@@ -243,11 +283,23 @@ const Offline = (() => {
     const spki = await subtle().exportKey('spki', pair.publicKey);
     // The journal keeps its key across a new key pair (a changed or reset
     // password): re-wrapped for the new public key if it is known here --
-    // from this tab, or from the server's escrow -- so unsynced work survives.
-    const journalKey = opts.journalKey || null;
+    // from this tab, the server's escrow, or the OLD password (a person
+    // changing their own password) -- so unsynced work survives (M7).
+    let journalKey = opts.journalKey || null;
+    if (!journalKey && existing && opts.oldPassword) {
+      const oldKey = await openPrivateKey(existing, opts.oldPassword);
+      if (oldKey) journalKey = await journalKeyFor(existing, oldKey);
+    }
+    // Still unknown, and the journal holds work: the OLD key material is never
+    // thrown away. It is kept with the journal so the previous password can
+    // still open it later (recoverJournal) -- nothing is lost to a reset.
+    if (!journalKey && existing) await retireKey(account.id, existing);
     await db().put('users', { ...base, salt: b64(salt), iterations: PBKDF2_ITERATIONS, privIv: b64(iv), wrappedPrivateKey: b64(wrapped),
       publicKey: b64(spki), enrolledAt: new Date().toISOString() });
     if (journalKey) await putJournalWraps(account.id, { rsaWrap: await wrapRaw(unb64(journalKey), pair.publicKey) });
+    // The same password typed again for a key retired earlier (a removed copy,
+    // then signing in again): recovered at once.
+    else await recoverJournal(account.id, password).catch(() => null);
     // A new key pair: any older copy could no longer be opened, so it goes.
     // (The journal is NOT removed: it can still be opened with the escrow.)
     await db().del('snapshots', account.id);
@@ -495,20 +547,73 @@ const Offline = (() => {
   /** Remove one person's entry and copy from this computer. Their journal of
       unsynced changes is KEPT (it opens again online, with the escrow). */
   async function forget(accountId) {
+    const user = await db().get('users', accountId);
+    if (user) await retireKey(accountId, user);
     await db().del('snapshots', accountId);
     await db().del('users', accountId);
   }
 
+  /**
+   * Keep a person's password-wrapped private key WITH their journal when it is
+   * about to be replaced or removed while the journal still holds work that
+   * only it can open (M7). Nothing secret is added: the key stays wrapped
+   * under the old password exactly as it was.
+   */
+  async function retireKey(accountId, user) {
+    const row = await db().get('journals', accountId);
+    if (!row || !row.ciphertext || !row.rsaWrap || !user || !user.wrappedPrivateKey) return false;
+    const retired = (row.retiredKeys || []).filter((k) => k.wrappedPrivateKey !== user.wrappedPrivateKey);
+    retired.push({ salt: user.salt, iterations: user.iterations, privIv: user.privIv, wrappedPrivateKey: user.wrappedPrivateKey, rsaWrap: row.rsaWrap, retiredAt: new Date().toISOString() });
+    await putJournalWraps(accountId, { retiredKeys: retired.slice(-5) });
+    return true;
+  }
+
+  /**
+   * Open a journal locked under a PREVIOUS password (a reset, or a removed copy)
+   * with that password, and re-wrap its key for the person's current key pair.
+   * Returns the journal key, or null if this password opens none of them.
+   */
+  async function recoverJournal(accountId, oldPassword) {
+    const row = await db().get('journals', accountId);
+    if (!row || !Array.isArray(row.retiredKeys) || !row.retiredKeys.length || typeof oldPassword !== 'string' || !oldPassword) return null;
+    for (const k of row.retiredKeys) {
+      const priv = await openPrivateKey(k, oldPassword);
+      if (!priv) continue;
+      try {
+        const aes = await subtle().unwrapKey('raw', unb64(k.rsaWrap), priv, { name: 'RSA-OAEP' }, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+        const raw = new Uint8Array(await subtle().exportKey('raw', aes));
+        const key = b64(raw);
+        await readJournal(accountId, key);   // it really opens this journal
+        const wraps = { retiredKeys: row.retiredKeys.filter((x) => x !== k) };
+        const fresh = await rsaWrapFor(accountId, raw);
+        if (fresh) wraps.rsaWrap = fresh;
+        await putJournalWraps(accountId, wraps);
+        return key;
+      } catch (e) { /* not this one */ }
+    }
+    return null;
+  }
+
+  /** Nothing secret: whether this person's journal holds work, and whether it is locked under a previous password. */
+  async function journalStatus(accountId) {
+    const row = await db().get('journals', accountId);
+    if (!row) return { exists: false };
+    const s = row.summary || {};
+    return { exists: true, hasWork: !!row.ciphertext && (s.pending || 0) + (s.conflict || 0) + (s.failed || 0) > 0,
+      escrow: !!row.escrowWrap, retired: (row.retiredKeys || []).length };
+  }
+
   /** Remove every copy and entry from this computer (the device id and any unsynced journals stay). */
   async function forgetAll() {
+    for (const u of await db().all('users')) await retireKey(u.accountId, u);
     await db().clear('snapshots');
     await db().clear('users');
   }
 
   return {
-    OFFLINE_DAYS, PBKDF2_ITERATIONS, supported, useStore, memoryStore, deviceId, deviceInfo, setDeviceCode, nextSequence, markRevoked, revoked, normalise,
+    OFFLINE_DAYS, PBKDF2_ITERATIONS, supported, useStore, memoryStore, check, ensurePersistent, persistence, deviceId, deviceInfo, setDeviceCode, nextSequence, markRevoked, revoked, normalise,
     enroll, saveSnapshot, unlock, openWithSession, status, hasCopies, forget, forgetAll, accessWindow,
-    journalKeyFromEscrow, journalKeyWithPassword, ensureEscrow, readJournal, writeJournal, journalSummaries,
+    journalKeyFromEscrow, journalKeyWithPassword, ensureEscrow, readJournal, recoverJournal, journalStatus, writeJournal, journalSummaries,
   };
 })();
 

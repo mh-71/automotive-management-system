@@ -151,7 +151,10 @@ const Storage = (() => {
      (js/offline.js) is open. Reads come from it; every write is refused. */
   const isOffline = () => mode === 'offline';
   let offlineSavedAt = null;
-  const OFFLINE_MESSAGE = 'You are offline. This is a read-only copy: changes can be saved when the internet is back.';
+  // Offline, a refusal means one of two things: this part of the CRM is
+  // online-only (accounts, roles, settings, the on-demand modules), or changes
+  // cannot be saved on this computer right now (no journal open). Either way:
+  const OFFLINE_MESSAGE = 'You are offline. This needs the internet: it is not available offline, and nothing was saved.';
   const offlineRefusal = () => ({ ok: false, code: 'offline', message: OFFLINE_MESSAGE });
   /* Phases 2-4 (js/sync.js): with the person's journal open, writes made
      offline are kept on this computer and sent when the server is back. */
@@ -835,7 +838,8 @@ const Storage = (() => {
     }
     ss.del(OFFLINE_SESSION_KEY);
     mode = 'locked';
-    return { mode: 'locked', offline: true, reason, hasCopies: await Offline.hasCopies() };
+    const store = await Offline.check();
+    return { mode: 'locked', offline: true, reason, hasCopies: store.ok && await Offline.hasCopies(), ...(store.ok ? {} : { storage: store }) };
   }
 
   /** Open the saved copy with a username / e-mail / Staff ID and password. */
@@ -893,13 +897,15 @@ const Storage = (() => {
   }
 
   /** After an online sign-in with a password: let this person open a copy here later. */
-  async function enrollOffline(password, typedIdentifier) {
+  async function enrollOffline(password, typedIdentifier, { oldPassword = null } = {}) {
     if (!offlineReady() || !signedInAccount || !password) return false;
     // A journal key this tab already holds survives a new key pair (a changed password).
     let journalKey = null;
     try { const s = JSON.parse(sessionStorage.getItem('taqwa_journal_session')); if (s && s.accountId === signedInAccount.id) journalKey = s.key; } catch (e) { /* none */ }
     try {
-      const enrolled = await Offline.enroll(signedInAccount, password, typedIdentifier, { journalKey });
+      const enrolled = await Offline.enroll(signedInAccount, password, typedIdentifier, { journalKey, oldPassword });
+      // M8: ask the browser to keep this computer's offline data (best effort; shown on Offline & Sync).
+      await Offline.ensurePersistent().catch(() => null);
       // Changes made offline and not sent yet, which this tab could not open
       // without the password: the password just typed opens them.
       if (enrolled && typeof Sync !== 'undefined' && !Sync.isOpen()) {

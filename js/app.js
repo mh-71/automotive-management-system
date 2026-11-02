@@ -370,6 +370,7 @@ const App = (() => {
           <div class="login__head">
             <span class="badge badge--warn login__badge">No internet</span>
             <h1 class="login__title" id="offTitle">Taqwa Autos CRM</h1>
+            ${hydration && hydration.storage ? `<p class="login__error" role="alert">${Utils.esc(hydration.storage.message)}</p>` : ''}
             <p class="login__subtitle">${copies
               ? 'The server cannot be reached. Sign in with your own password to keep working offline: your changes are kept on this computer, encrypted, and sent to the server when the internet is back (payments as <strong>pending</strong>, invoices as <strong>drafts</strong>).'
               : 'The server cannot be reached, and this computer has no saved offline copy yet. Connect to the internet and sign in once; after that, you can work offline here for up to 14 days.'}</p>
@@ -427,12 +428,14 @@ const App = (() => {
       if (bar.dataset.back) return;
       const n = waiting();
       bar.innerHTML = writable
-        ? `<strong>Offline.</strong> Working from the copy saved on this computer${at ? ` (${Utils.esc(at)})` : ''}. Changes are kept here and sent when the internet is back. <span class="offline-bar__count" id="offlineWaiting">${n} change${n === 1 ? '' : 's'} waiting</span> · <a href="${document.body.dataset.root || ''}pages/offline-sync.html">Offline &amp; Sync</a>`
+        ? `<strong>Offline.</strong> Working from the copy saved on this computer${at ? ` (${Utils.esc(at)})` : ''}. Changes are kept here and sent when the internet is back. <span class="offline-bar__count" id="offlineWaiting">${n} change${n === 1 ? '' : 's'} waiting</span>${n && !persisted ? ' <span class="offline-bar__warn" id="offlinePersistWarn">· This browser has not promised to keep them: do not clear site data, and sync as soon as you can.</span>' : ''} · <a href="${document.body.dataset.root || ''}pages/offline-sync.html">Offline &amp; Sync</a>`
         : `<strong>Offline.</strong> You are viewing a read-only copy saved on this computer${at ? ` (${Utils.esc(at)})` : ''}. Nothing can be changed until the internet is back.`;
     };
+    let persisted = true;
     draw();
     content.prepend(bar);
     if (typeof Sync !== 'undefined') Sync.on(draw);
+    if (typeof Offline !== 'undefined') Offline.persistence().then(p => { persisted = !!(p && p.persisted); draw(); }).catch(() => {});
     const back = async () => {
       if (bar.dataset.back) return;
       const probe = await Api.probe({ timeoutMs: 4000 });
@@ -491,9 +494,11 @@ const App = (() => {
       if (nw.value !== rep.value) { setErr('pw-repeat', 'The two new passwords do not match.'); rep.focus(); return; }
       btn.disabled = true; btn.textContent = 'Saving…';
       const chosen = nw.value;
-      const res = await Api.changePassword(cur.value, chosen);
+      const previous = cur.value;
+      const res = await Api.changePassword(previous, chosen);
       cur.value = ''; nw.value = ''; rep.value = '';
-      if (res.ok) await Storage.enrollOffline(chosen);
+      // The previous password re-wraps any unsynced offline work for the new one (kept in memory only here).
+      if (res.ok) await Storage.enrollOffline(chosen, undefined, { oldPassword: previous });
       if (!res.ok) {
         btn.disabled = false; btn.textContent = 'Save password';
         const f = res.fields || {};
@@ -983,6 +988,56 @@ const App = (() => {
     'asset-assignment': 'tools.view', 'asset-history': 'tools.view', 'asset-reports': 'tools.view',
     notifications: 'notifications.view',
   };
+  /**
+   * The modules that do NOT work offline (M10): their records are read on
+   * demand and are not in the offline copy, and nothing can be saved for them
+   * on this computer. Offline, the sidebar marks them and their pages say so.
+   * (Accounts, roles and settings are online-only by design: under Staff and Settings.)
+   */
+  const ONLINE_ONLY = {
+    estimates: 'Estimates', 'estimate-create': 'Estimates', 'estimate-details': 'Estimates',
+    'staff-attendance': 'Attendance',
+    'workshop-tools': 'Workshop Assets', 'equipment-inventory': 'Workshop Assets', 'maintenance-repairs': 'Workshop Assets',
+    'asset-assignment': 'Workshop Assets', 'asset-history': 'Workshop Assets', 'asset-reports': 'Workshop Assets',
+    notifications: 'Notifications',
+    'staff-management': 'Staff', 'staff-list': 'Staff', 'staff-add': 'Staff', 'staff-performance': 'Staff',
+    'staff-accounts': 'Staff', 'staff-roles': 'Staff', 'staff-leave': 'Staff', 'staff-activity-log': 'Staff',
+    'crm-reminders': 'CRM', 'crm-follow-up': 'CRM', 'crm-history': 'CRM', 'crm-tasks': 'CRM', 'crm-reports': 'CRM',
+    'inbox-conversations': 'Inbox', 'inbox-facebook': 'Inbox', 'inbox-whatsapp': 'Inbox', 'inbox-website-forms': 'Inbox',
+    settings: 'Settings',
+  };
+  const ONLINE_ONLY_MODULES = ['Estimates', 'Attendance', 'Workshop Assets', 'Notifications', 'Staff', 'CRM', 'Inbox'];
+
+  /** Offline: mark every online-only link in the sidebar, and say so on an online-only page. */
+  function markOnlineOnly() {
+    if (!(Storage.isOffline && Storage.isOffline())) return;
+    document.querySelectorAll('.sidebar a[href]').forEach(a => {
+      const key = pageOfHref(a.getAttribute('href'));
+      if (!key || !ONLINE_ONLY[key] || a.querySelector('.online-only-badge')) return;
+      a.classList.add('is-online-only');
+      a.setAttribute('title', `${ONLINE_ONLY[key]} needs the internet: not available offline.`);
+      a.insertAdjacentHTML('beforeend', '<span class="online-only-badge">Online only</span>');
+    });
+    // A group whose every link is online-only is marked too.
+    document.querySelectorAll('.sidebar details').forEach(group => {
+      const links = [...group.querySelectorAll('a[href]')];
+      const summary = group.querySelector('summary');
+      if (summary && links.length && links.every(a => a.classList.contains('is-online-only')) && !summary.querySelector('.online-only-badge')) {
+        summary.insertAdjacentHTML('beforeend', '<span class="online-only-badge">Online only</span>');
+      }
+    });
+    const page = document.body.dataset.page || 'dashboard';
+    const content = document.getElementById('page-content');
+    if (ONLINE_ONLY[page] && content && !document.getElementById('onlineOnlyNotice')) {
+      content.insertAdjacentHTML('afterbegin', `
+        <section class="card online-only-notice" id="onlineOnlyNotice" role="alert">
+          <h2>${Utils.esc(ONLINE_ONLY[page])} is online-only</h2>
+          <p>It does not work offline: its records are not on this computer, and nothing can be saved for it here. Connect to the internet to use it.</p>
+          <p class="online-only-notice__list">Offline you can use Customers, Vehicles, Appointments, Job Cards, Invoices (drafts), Payments (pending), Inventory, Expenses, Services, Mechanics, the Dashboard and Reports. Online only: ${ONLINE_ONLY_MODULES.join(', ')}.</p>
+        </section>`);
+    }
+  }
+
   /** The page key behind a sidebar link: 'pages/invoices.html' -> 'invoices', 'index.html' -> 'dashboard'. */
   const pageOfHref = href => {
     const m = /(?:^|\/)([a-z0-9-]+)\.html(?:[?#].*)?$/.exec(String(href || ''));
@@ -1148,7 +1203,7 @@ const App = (() => {
   }
   /* After the page is shown: online, refresh this person's offline copy; offline, say so. */
   function afterReveal() {
-    if (Storage.isOffline && Storage.isOffline()) { showOfflineBar(); showPendingPanel(); return; }
+    if (Storage.isOffline && Storage.isOffline()) { markOnlineOnly(); showOfflineBar(); showPendingPanel(); return; }
     if (Storage.isApi() && typeof Storage.saveOfflineCopy === 'function' && typeof setTimeout === 'function') {
       setTimeout(() => { Storage.saveOfflineCopy().catch(() => {}); }, 1500);
     }
@@ -1167,6 +1222,8 @@ const App = (() => {
     if (syncStarted || typeof Sync === 'undefined' || !Storage.isApi() || !Storage.account || !Api.sameOrigin
       || typeof Offline === 'undefined' || !Offline.supported() || typeof setTimeout !== 'function') return;
     syncStarted = true;
+    // M8: ask the browser to keep this computer's offline data (shown on Offline & Sync).
+    Offline.ensurePersistent().catch(() => null);
     const go = reason => Sync.run({ reason }).then(r => {
       if (r && r.ok && r.sent) {
         Utils.toast(`${r.sent} change${r.sent === 1 ? '' : 's'} made offline ${r.sent === 1 ? 'was' : 'were'} accepted by the server.`, 'success');

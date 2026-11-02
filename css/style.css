@@ -620,3 +620,11 @@ a.nav__sub:hover { background: rgba(255, 255, 255, .06); color: #fff; text-decor
 .pending-panel { margin-bottom: 16px; border-left: 4px solid var(--warn); }
 .pending-panel .card__head h2 { font-size: 1rem; margin: 0; }
 .offline-bar__count { font-weight: 600; }
+
+/* Offline: modules that need the internet (js/app.js markOnlineOnly). */
+.online-only-badge { margin-left: auto; padding: 1px 6px; border-radius: 999px; font-size: .62rem; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; background: var(--warn-soft); color: var(--amber-text, var(--warn)); white-space: nowrap; }
+.sidebar a.is-online-only { opacity: .62; }
+.online-only-notice { margin-bottom: 16px; padding: 16px 18px; border-left: 4px solid var(--warn); }
+.online-only-notice h2 { margin: 0 0 6px; font-size: 1.05rem; }
+.online-only-notice p { margin: 0 0 6px; color: var(--text-2); font-size: .9rem; }
+.offline-bar__warn { color: var(--bad); }

@@ -51,6 +51,18 @@
       <div class="card ofs-stat"><span class="ofs-stat__label">App version</span><strong class="ofs-stat__value" id="ofsVersion">&ndash;</strong><span class="ofs-stat__sub" id="ofsShell"></span></div>
       <div class="card ofs-stat"><span class="ofs-stat__label">This computer</span><strong class="ofs-stat__value ofs-mono" id="ofsCode">&ndash;</strong><span class="ofs-stat__sub ofs-mono" id="ofsDevice">&ndash;</span></div>
       <div class="card ofs-stat"><span class="ofs-stat__label">Last sync</span><strong class="ofs-stat__value" id="ofsLastSync">&ndash;</strong><span class="ofs-stat__sub" id="ofsSyncState"></span></div>
+      <div class="card ofs-stat"><span class="ofs-stat__label">Storage on this computer</span><strong class="ofs-stat__value" id="ofsStorage">&ndash;</strong><span class="ofs-stat__sub" id="ofsStorageSub"></span></div>
+    </section>
+
+    <section class="card ofs-card" aria-labelledby="ofsOnlineOnlyTitle">
+      <div class="card__head ofs-card__head"><h2 id="ofsOnlineOnlyTitle">Not available offline</h2></div>
+      <div class="card__body">
+        <p class="ofs-hint">These modules need the internet. Offline, the sidebar marks them <span class="online-only-badge">Online only</span> and their pages say so: their records are not on this computer and nothing can be saved for them here.</p>
+        <ul class="ofs-online-only" id="ofsOnlineOnly">
+          <li>Estimates</li><li>Attendance</li><li>Workshop Assets</li><li>Notifications</li><li>Staff</li><li>CRM</li><li>Inbox</li>
+        </ul>
+        <p class="ofs-hint">Also online-only, by design: user accounts, roles and permissions, settings, and deleting or voiding anything.</p>
+      </div>
     </section>
 
     <section class="card ofs-card" aria-labelledby="ofsSyncTitle">
@@ -76,6 +88,14 @@
           <div class="ofs-count"><span class="ofs-count__n" id="ofsInventory">&ndash;</span><span class="ofs-count__l">Inventory review</span></div>
         </div>
         <p class="ofs-note" id="ofsCountsNote" role="status"></p>
+        <form class="ofs-recover" id="ofsRecover" hidden novalidate>
+          <p class="ofs-hint"><strong>Changes made offline on this computer are locked under a previous password</strong> (the password was reset or changed elsewhere). They are kept, encrypted. Enter the password you used when you made them to unlock and send them.</p>
+          <div class="ofs-recover__row">
+            <input class="input" type="password" id="ofsRecoverPw" autocomplete="current-password" placeholder="Previous password" aria-label="Previous password">
+            <button type="submit" class="btn btn--primary btn--sm">Unlock my offline changes</button>
+          </div>
+          <p class="login__error" id="ofsRecoverErr" role="alert"></p>
+        </form>
         <div id="ofsPendingBox" hidden>
           <h3 class="ofs-sub-title">Waiting on this computer</h3>
           <div class="table-wrap"><table class="table ofs-table"><thead><tr><th scope="col">Change</th><th scope="col">Record</th><th scope="col">Made</th><th scope="col">Status</th><th scope="col">Detail</th></tr></thead><tbody id="ofsPendingList"></tbody></table></div>

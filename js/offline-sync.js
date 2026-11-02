@@ -99,6 +99,10 @@ const OfflineSync = (() => {
     $('ofsSyncState').textContent = st && st.phase === 'signin' ? st.error
       : st && st.phase === 'revoked' ? 'Offline access on this computer was revoked by an administrator.'
       : st && st.error ? `Last attempt: ${st.error}` : last ? `Sent ${last.sent}, received ${last.pulled}.` : '';
+    // M7: work locked under a previous password -- offer to unlock it, never to discard it.
+    const me = Storage.account;
+    const js = me && !open ? await Offline.journalStatus(me.id) : null;
+    $('ofsRecover').hidden = !(js && js.hasWork);
     $('ofsSyncNow').disabled = !(online && open);
     $('ofsSyncNow').title = online ? '' : 'Needs the internet.';
     $('ofsRetry').disabled = !(open && c && c.failed);
@@ -121,6 +125,12 @@ const OfflineSync = (() => {
       $('ofsCopies').innerHTML = '<tr><td colspan="6" class="ofs-empty">This browser cannot keep an encrypted offline copy.</td></tr>';
       return;
     }
+    const keep = await Offline.persistence();
+    $('ofsStorage').textContent = !keep ? 'Not checked yet' : keep.persisted ? 'Kept' : 'Not guaranteed';
+    $('ofsStorageSub').textContent = !keep ? 'Checked at the next online sign-in.'
+      : keep.persisted ? 'The browser has promised to keep this site\'s data (it will not clear it under storage pressure).'
+      : keep.supported ? 'The browser may clear this site\'s data when the disk is short of space. Sync often, and do not clear site data while changes are waiting.'
+      : 'This browser cannot promise to keep the data. Sync often, and do not clear site data while changes are waiting.';
     const dev = await Offline.deviceInfo();
     $('ofsDevice').textContent = dev.deviceId;
     $('ofsCode').textContent = dev.registered ? `Code ${dev.code}` : 'Not registered yet';
@@ -142,6 +152,22 @@ const OfflineSync = (() => {
   }
 
   function bind() {
+    $('ofsRecover').addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const me = Storage.account;
+      const pw = $('ofsRecoverPw').value;
+      $('ofsRecoverErr').textContent = '';
+      if (!me || !pw) return;
+      const key = (await Offline.recoverJournal(me.id, pw)) || (await Offline.journalKeyWithPassword(me.id, pw));
+      $('ofsRecoverPw').value = '';
+      if (!key || !(await Sync.open({ accountId: me.id, key }))) { $('ofsRecoverErr').textContent = 'That password does not unlock them. Try another previous password.'; return; }
+      Sync.rememberKey(me.id, key);
+      Sync.overlay();
+      Utils.toast('Your offline changes are unlocked.', 'success');
+      if (Storage.isApi()) await Sync.run({ reason: 'recovered' });
+      server = null;
+      render();
+    });
     $('ofsSyncNow').addEventListener('click', async e => {
       const btn = e.currentTarget;
       btn.disabled = true; btn.textContent = 'Syncing…';

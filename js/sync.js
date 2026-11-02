@@ -171,6 +171,22 @@ const Sync = (() => {
     return out;
   }
 
+  /**
+   * An offline write (M6): the change is shown ONLY after the encrypted journal
+   * holding it has been written. If the browser's storage refuses (quota,
+   * a damaged store), nothing is shown and the person is told nothing was saved.
+   */
+  const STORAGE_FAILED = { ok: false, code: 'storage', message: 'This change could not be saved on this computer: the browser refused to store it (storage full or damaged). Nothing was saved. Free some space or sync, then try again.' };
+  async function write(fn) {
+    let res;
+    try { res = await mutate(fn); } catch (e) {
+      console.error('Offline change not saved:', e && e.message);
+      return STORAGE_FAILED;
+    }
+    if (res && res.show) { host.cachePut(res.show[0], res.show[1]); delete res.show; }
+    return res;
+  }
+
   function newOp(kind, fields) {
     return { opId: uuid(), kind, ...fields, createdAt: now(), by: session.accountId, state: 'pending', attempts: 0 };
   }
@@ -193,7 +209,7 @@ const Sync = (() => {
     if (!MODULE[collection]) return OFFLINE_ONLY(`Adding ${collection}`);
     if (!can(`${MODULE[collection]}.create`)) return FORBIDDEN;
     const { ref, device } = await tempRef(PREFIX[collection]);
-    return mutate((j) => {
+    return write((j) => {
       const at = now();
       const rec = {
         ...(display ? clone(display) : {}), ...clone(body), id: ref, uuid: uuid(), createdAt: at, updatedAt: at,
@@ -205,8 +221,7 @@ const Sync = (() => {
       (j.records[collection] || (j.records[collection] = {}))[ref] = rec;
       j.outbox.push(newOp('create', { collection, tempId: ref, data: clone(body) }));
       note(j, `${LABEL[collection]} ${ref} saved offline`, { tempId: ref });
-      host.cachePut(collection, rec);
-      return { ok: true, record: rec, pending: true, meta: {} };
+      return { ok: true, record: rec, pending: true, meta: {}, show: [collection, rec] };
     });
   }
 
@@ -239,7 +254,7 @@ const Sync = (() => {
     if (!MODULE[collection]) return OFFLINE_ONLY(`Changing ${collection}`);
     if (!can(`${MODULE[collection]}.edit`)) return FORBIDDEN;
     if (!host.cacheGet(collection, id)) return { ok: false, code: 'not_found', message: 'That record no longer exists.' };
-    return mutate((j) => {
+    return write((j) => {
       const current = host.cacheGet(collection, id);
       const asked = clone(changes || {});
       const data = {};
@@ -270,8 +285,7 @@ const Sync = (() => {
         _sync: { ...(current._sync || {}), state: 'pending', tempRef: (current._sync && current._sync.tempRef) || null, by: session.accountId, at } };
       (j.records[collection] || (j.records[collection] = {}))[id] = rec;
       note(j, `${LABEL[collection]} ${id} changed offline`, { targetId: id });
-      host.cachePut(collection, rec);
-      return { ok: true, record: rec, pending: true, meta: {} };
+      return { ok: true, record: rec, pending: true, meta: {}, show: [collection, rec] };
     });
   }
 
@@ -282,7 +296,7 @@ const Sync = (() => {
     if (!current) return { ok: false, code: 'not_found', message: 'That record no longer exists.' };
     const next = body && body.status;
     if (typeof next !== 'string' || !next) return { ok: false, code: 'invalid', message: 'Choose a status.' };
-    return mutate((j) => {
+    return write((j) => {
       const cur = host.cacheGet('jobCards', id);
       const base = (memBase.jobCards && memBase.jobCards[id]) || (j.bases.jobCards && j.bases.jobCards[id]) || cur;
       if (!isTemp(id) && !cur._sync) (j.bases.jobCards || (j.bases.jobCards = {}))[id] = clone(cur);
@@ -295,8 +309,7 @@ const Sync = (() => {
         _sync: { ...(cur._sync || {}), state: 'pending', tempRef: (cur._sync && cur._sync.tempRef) || null, by: session.accountId, at } };
       (j.records.jobCards || (j.records.jobCards = {}))[id] = rec;
       note(j, `job card ${id} moved to ${next} offline`, { targetId: id });
-      host.cachePut('jobCards', rec);
-      return { ok: true, record: rec, pending: true, meta: {} };
+      return { ok: true, record: rec, pending: true, meta: {}, show: ['jobCards', rec] };
     });
   }
 
@@ -306,7 +319,7 @@ const Sync = (() => {
     const amount = Number(body && body.amount);
     if (!(amount > 0) || !body.customerId) return { ok: false, code: 'invalid', message: 'A pending payment needs a customer and an amount above zero.' };
     const { ref, device } = await tempRef('PAY');
-    return mutate((j) => {
+    return write((j) => {
       const at = now();
       const rec = { ...clone(body), amount, id: ref, uuid: uuid(), status: 'Pending', createdAt: at,
         _sync: { state: 'pending', tempRef: ref, by: session.accountId, device: device.code, at } };
@@ -323,7 +336,7 @@ const Sync = (() => {
     const job = body && host.cacheGet('jobCards', body.jobCardId);
     if (!job) return { ok: false, code: 'not_found', message: 'That job card is not on this computer.' };
     const { ref, device } = await tempRef('DRF');
-    return mutate((j) => {
+    return write((j) => {
       const at = now();
       const rec = { id: ref, uuid: uuid(), jobCardId: job.id, customerId: job.customerId, vehicleId: job.vehicleId, date: body.date || '', notes: body.notes || '',
         status: 'Draft', localTotal: Number(job.total) || 0, createdAt: at, _sync: { state: 'pending', tempRef: ref, by: session.accountId, device: device.code, at } };
@@ -340,7 +353,7 @@ const Sync = (() => {
   async function createMovement(body) {
     if (!can('inventory.manage')) return FORBIDDEN;
     const { ref, device } = await tempRef('STK');
-    return mutate((j) => {
+    return write((j) => {
       const at = now();
       const rec = { ...clone(body), id: ref, uuid: uuid(), createdAt: at, _sync: { state: 'pending', tempRef: ref, by: session.accountId, device: device.code, at } };
       j.localOnly.inventoryTransactions.push(rec);
@@ -526,6 +539,9 @@ const Sync = (() => {
       note(j, `${LABEL[o.collection] || o.collection} ${o.tempId || o.targetId || ''}: failed -- ${o.error}`, { opId: o.opId });
       return;
     }
+    // Deferred by the server's query budget (Free plan): not an error, not
+    // attempted -- it simply goes in the next request, with no back-off.
+    if (r.status === 'deferred') return;
     // retry
     o.attempts = (o.attempts || 0) + 1;
     o.nextAt = new Date(Date.now() + backoff(o.attempts)).toISOString();
@@ -588,7 +604,9 @@ const Sync = (() => {
     await mutate(() => null);
     const stale = new Set();
     let sent = 0;
-    for (let round = 0; round < 40; round++) {
+    // The server takes what fits its per-request query budget and defers the
+    // rest; this loop keeps sending until nothing is due, or nothing moved.
+    for (let round = 0; round < 500; round++) {
       const due = journal.outbox.filter((o) => ['pending', 'conflict', 'syncing'].includes(o.state) && !(o.nextAt && Date.parse(o.nextAt) > Date.now()));
       if (!due.length) break;
       const batch = due.slice(0, BATCH);
@@ -604,7 +622,9 @@ const Sync = (() => {
       const results = (res.data && res.data.results) || [];
       await mutate((j) => { for (const r of results) applyResult(j, r, stale); });
       sent += results.filter((r) => r.status === 'applied' && !r.replayed).length;
-      if (results.every((r) => r.status === 'retry' || r.replayed || r.status === 'conflict')) break;
+      const progressed = results.some((r) => r.status !== 'deferred' && r.status !== 'retry' && !r.replayed);
+      const deferred = results.some((r) => r.status === 'deferred');
+      if (!(progressed && deferred) && results.every((r) => r.status === 'retry' || r.replayed || r.status === 'conflict' || r.status === 'deferred')) break;
     }
     for (const c of stale) { try { await host.reload(c); } catch (e) { /* the page says it may be stale */ } }
     let pulled = 0;
@@ -615,15 +635,21 @@ const Sync = (() => {
     return { ok: true, sent, pulled, counts: counts() };
   }
 
-  /** Changes since this page's cursor: applied to what is on screen; the cursor moves only after. */
+  /**
+   * Changes since this page's cursor, a page at a time (the server ends each
+   * page within its query budget). Each page is applied -- including re-reading
+   * any collection it says to refresh -- BEFORE the cursor moves past it. A
+   * page the server could not finish ('retryLater') stops the pull: the rest
+   * is read next time, from where this one stopped.
+   */
   async function pull(deviceId) {
     let cursor = host.cursor;
     if (!Number.isInteger(cursor)) return 0;
     let applied = 0;
-    const refresh = new Set();
-    for (let page = 0; page < 20; page++) {
-      const res = await Api.get(`/sync/pull?deviceId=${encodeURIComponent(deviceId)}&cursor=${cursor}&limit=200`);
+    for (let page = 0; page < 500; page++) {
+      const res = await Api.get(`/sync/pull?deviceId=${encodeURIComponent(deviceId)}&cursor=${cursor}&limit=50`);
       if (!res.ok) break;
+      const refresh = new Set();
       for (const ch of res.data.changes || []) {
         if (!host.collections.includes(ch.collection)) continue;
         // Another write moved this collection as a side effect (a payment, its invoice): read it again.
@@ -638,13 +664,14 @@ const Sync = (() => {
           applied += 1;
         }
       }
-      if (!res.data.hasMore) {
-        // The cursor moves only once what it covers is on screen.
-        for (const c of refresh) { try { if ((await host.reload(c)).ok) applied += 1; } catch (e) { /* stays as it was */ } }
-        cursor = res.data.cursor; host.cursor = cursor;
-        break;
+      let refreshed = true;
+      for (const c of refresh) {
+        try { if ((await host.reload(c)).ok) applied += 1; else refreshed = false; } catch (e) { refreshed = false; }
       }
+      // A collection that could not be re-read keeps the cursor where it was.
+      if (!refreshed) break;
       cursor = res.data.cursor; host.cursor = cursor;
+      if (!res.data.hasMore || res.data.retryLater) break;
     }
     return applied;
   }
