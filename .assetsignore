@@ -19,6 +19,7 @@ README.md
 AUDIT.md
 DEPLOYMENT.md
 MESSENGER_SETUP.md
+WHATSAPP_SETUP.md
 
 # Secret files, if a developer ever creates one in the repository root. They
 # are gitignored, which keeps them out of the REPOSITORY -- this keeps them

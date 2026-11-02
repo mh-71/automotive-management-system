@@ -27,8 +27,9 @@ const App = (() => {
 
   /* Social Inbox, shown after Inventory: exactly four entries. Facebook is
      connected to the real Page (Messenger, migration 0014) and All
-     Conversations lists its conversations; WhatsApp and Website Forms are
-     still DEMO pages (sample data in memory, nothing connected, sent or
+     Conversations lists its conversations; WhatsApp is connected to the
+     WhatsApp Business Cloud API (migration 0015); Website Forms is still a
+     DEMO page (sample data in memory, nothing connected, sent or
      booked). Website
      bookings are listed in Appointments, and Facebook page comments are part
      of the Facebook inbox, so neither has an entry of its own here. Every
@@ -42,8 +43,8 @@ const App = (() => {
       title: 'Real Facebook Messenger conversations. WhatsApp and Website are not connected yet.', icon: 'M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z' },
     { key: 'inbox-facebook', label: 'Facebook', href: 'pages/inbox-facebook.html', hint: 'Messenger',
       title: 'Real Facebook Messenger conversations with the workshop\'s Page.', icon: 'M24 12.07C24 5.41 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.8-4.7 4.54-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.5c-1.5 0-1.96.93-1.96 1.89v2.26h3.32l-.53 3.5h-2.8V24C19.62 23.1 24 18.1 24 12.07z' },
-    { key: 'inbox-whatsapp', label: 'WhatsApp', href: 'pages/inbox-whatsapp.html', hint: 'Demo',
-      title: 'Sample WhatsApp chats only. Not connected; nothing is sent.', icon: 'M12 2C6.48 2 2 6.03 2 11c0 2.84 1.46 5.36 3.74 7L5 22l4.27-2.18c.87.12 1.79.18 2.73.18 5.52 0 10-4.03 10-9S17.52 2 12 2z' },
+    { key: 'inbox-whatsapp', label: 'WhatsApp', href: 'pages/inbox-whatsapp.html', hint: 'Business',
+      title: 'Real WhatsApp Business conversations (Cloud API).', icon: 'M12 2C6.48 2 2 6.03 2 11c0 2.84 1.46 5.36 3.74 7L5 22l4.27-2.18c.87.12 1.79.18 2.73.18 5.52 0 10-4.03 10-9S17.52 2 12 2z' },
     { key: 'inbox-website-forms', label: 'Website Forms', href: 'pages/inbox-website-forms.html', hint: 'Demo',
       title: 'Sample website form submissions only. Not connected; no booking is created.', icon: 'M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z' },
   ];
@@ -142,7 +143,7 @@ const App = (() => {
     'staff-leave': 'Leave Management', 'staff-performance': 'Performance', 'staff-activity-log': 'Activity Log',
     'workshop-tools': 'Workshop Tools & Equipment',
     'inbox-conversations': 'All Conversations',
-    'inbox-whatsapp': 'WhatsApp Inbox',
+    'inbox-whatsapp': 'WhatsApp',
     'inbox-facebook': 'Facebook Messenger',
     'inbox-website-forms': 'Website Forms Inbox',
     'equipment-inventory': 'Equipment Inventory', 'maintenance-repairs': 'Maintenance & Repairs',

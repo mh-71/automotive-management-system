@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 126 routes', routes.length === 126, routes);
+  t('advertises 135 routes', routes.length === 135, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('51 GET, 45 POST, 19 PUT, 11 DELETE',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 51, POST: 45, PUT: 19, DELETE: 11 }), byMethod);
+    t('55 GET, 49 POST, 20 PUT, 11 DELETE',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 55, POST: 49, PUT: 20, DELETE: 11 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));
@@ -96,7 +96,10 @@ sec('1. Health');
         'POST /api/leave-requests/:id/approve', 'POST /api/leave-requests/:id/reject',
         'POST /api/tools/:id/retire',
         'GET /api/messenger/conversations/:id/messages', 'POST /api/messenger/conversations/:id/reply',
-        'POST /api/messenger/conversations/:id/read', 'PUT /api/messenger/conversations/:id/status']), routes);
+        'POST /api/messenger/conversations/:id/read', 'PUT /api/messenger/conversations/:id/status',
+        'GET /api/whatsapp/conversations/:id/messages', 'POST /api/whatsapp/conversations/:id/reply',
+        'POST /api/whatsapp/conversations/:id/read', 'POST /api/whatsapp/conversations/:id/unread',
+        'PUT /api/whatsapp/conversations/:id/status']), routes);
   t('advertises invoices routes', routes.includes('GET /api/invoices') && routes.includes('GET /api/invoices/:id'));
   t('advertises payments routes', routes.includes('GET /api/payments') && routes.includes('GET /api/payments/:id'));
   t('advertises expenses routes', routes.includes('GET /api/expenses') && routes.includes('GET /api/expenses/:id'));
@@ -4643,7 +4646,7 @@ sec('21. Authentication: every mutation is gated, against the real Worker');
     // The Messenger webhook (0014) is public by necessity -- Meta has no
     // session -- and is protected by Meta's App Secret signature instead
     // (tests/unit/api-messenger.test.mjs proves an unsigned POST is refused).
-    const SESSION_ROUTES = new Set(['POST /api/session', 'DELETE /api/session', 'POST /api/webhooks/messenger']);
+    const SESSION_ROUTES = new Set(['POST /api/session', 'DELETE /api/session', 'POST /api/webhooks/messenger', 'POST /api/webhooks/whatsapp']);
     const mutations = advertised.filter(
       (r) => /^(POST|PUT|PATCH|DELETE) /.test(r) && !SESSION_ROUTES.has(r));
     t('the registry advertises the mutations to check', mutations.length >= 30, mutations.length);
@@ -4684,7 +4687,7 @@ sec('21. Authentication: every mutation is gated, against the real Worker');
      check keeps its shape -- enumerate EVERY advertised GET from the
      registry rather than spot-checking -- and asserts the opposite. */
   {
-    const PUBLIC = new Set(['GET /api/health', 'GET /api/session', 'GET /api/webhooks/messenger']);
+    const PUBLIC = new Set(['GET /api/health', 'GET /api/session', 'GET /api/webhooks/messenger', 'GET /api/webhooks/whatsapp']);
     const open = [];
     for (const route of advertised.filter((r) => r.startsWith('GET ') && !PUBLIC.has(r))) {
       const [, path] = route.split(' ');

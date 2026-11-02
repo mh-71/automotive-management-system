@@ -699,11 +699,11 @@ for (const [path, method, body] of [
     ['POST /api/payments', 'PUT /api/payments/:id', 'DELETE /api/payments/:id',
       'POST /api/payments/:id/void', 'POST /api/payments/:id/link'].every((r) => routes.includes(r)),
     routes);
-  check('   ...and the registry is 126 routes', routes.length, 126);
+  check('   ...and the registry is 135 routes', routes.length, 135);
   ok_('   ...with no PUT or DELETE on either action path',
     !routes.some((r) => /\/(void|link)$/.test(r) && !r.startsWith('POST ')), routes);
-  check('   ...twenty-one action routes in all (0002 added reversing a write-off; 0005 four follow-up actions; 0006 three task actions; 0007 five estimate actions; 0009 setting an account password; 0011 approving and rejecting leave; 0013 retiring a tool; 0014 four per-conversation Messenger routes)',
-    routes.filter((r) => /\/:id\/[a-z-]+$/.test(r)).length, 25);
+  check('   ...twenty-one action routes in all (0002 added reversing a write-off; 0005 four follow-up actions; 0006 three task actions; 0007 five estimate actions; 0009 setting an account password; 0011 approving and rejecting leave; 0013 retiring a tool; 0014 four per-conversation Messenger routes; 0015 five per-conversation WhatsApp routes)',
+    routes.filter((r) => /\/:id\/[a-z-]+$/.test(r)).length, 30);
 }
 {
   const res = await call('/api/payments/PAY-0001/unlink', { DB: stubDB() }, 'POST', {});
