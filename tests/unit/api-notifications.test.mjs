@@ -371,6 +371,7 @@ console.log('\n-- D. time-based --');
     ['part.low_stock:PRT-0002', 'Out of stock', 'important'],
   ]);
   check('   ...and the list shows them', res.body.total, 5);
+  check('   ...stock figures read naturally (no trailing .0)', h.one("SELECT message FROM notifications WHERE record_id = 'PRT-0002'").message, 'Test Brake Pad (PRT-0002): 0 in stock, minimum 2.');
   ok_('   ...a future follow-up, a closed one, a later task, a well-stocked part, one with no minimum and an inactive one raise nothing',
     !keys.some((k) => /FUP-0003|FUP-0004|TSK-0002|PRT-0003|PRT-0004|PRT-0005/.test(k.event_key)));
   const again = await sweepNotifications(h.env, { force: true });

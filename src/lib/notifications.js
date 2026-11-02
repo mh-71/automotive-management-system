@@ -328,7 +328,7 @@ export async function sweepNotifications(env, { force = false, now = Date.now() 
        SELECT 'part.low_stock:' || p.id || ':' || COALESCE(p.updated_at, p.created_at), 'part.low_stock', 'Inventory',
               'important',
               CASE WHEN p.stock <= 0 THEN 'Out of stock' ELSE 'Low stock' END,
-              substr(p.name || ' (' || p.id || '): ' || p.stock || ' in stock, minimum ' || p.min_stock || '.', 1, 500),
+              substr(p.name || ' (' || p.id || '): ' || printf('%g', p.stock) || ' in stock, minimum ' || printf('%g', p.min_stock) || '.', 1, 500),
               'part', p.id, ?1
          FROM parts p
         WHERE p.status = 'Active' AND p.min_stock > 0 AND p.stock <= p.min_stock`
