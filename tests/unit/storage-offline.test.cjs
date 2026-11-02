@@ -84,7 +84,7 @@ const down = (calls) => async (url, init = {}) => { calls.push({ url: String(url
       await h.ctx.Storage.load('estimates'),
     ];
     check('create, update, delete, actions, settings and on-demand reads are all refused as offline', tries.map(t => [t.ok, t.code]), Array(6).fill([false, 'offline']));
-    ok('   ...with a plain message', /You are offline\. This is a read-only copy/.test(tries[0].message), tries[0].message);
+    ok('   ...with a plain message', /You are offline\. This needs the internet/.test(tries[0].message), tries[0].message);
     check('   ...no request was even attempted, and the copy is unchanged', [calls.length - before, h.ctx.Storage.getData('customers').map(c => c.name)], [0, ['Test Customer']]);
   }
 

@@ -37,9 +37,9 @@
 
   <div id="page-content">
 
-    <!-- Offline & Sync (Phase 1). Filled in by js/offline-sync.js from this browser: the
-         service worker, the device id and the encrypted offline copies (js/offline.js).
-         Nothing here is sent anywhere, and no figure is invented. -->
+    <!-- Offline & Sync. Filled in by js/offline-sync.js from this browser (the service
+         worker, the device, the encrypted copies and the journal of offline changes) and,
+         online, from the server (GET /api/sync/status). No figure is invented. -->
 
     <div class="ofs-head">
       <h2 class="ofs-title">Offline &amp; Sync</h2>
@@ -49,7 +49,62 @@
     <section class="ofs-grid" aria-label="This computer">
       <div class="card ofs-stat"><span class="ofs-stat__label">Connection</span><strong class="ofs-stat__value" id="ofsConn">&ndash;</strong><span class="ofs-stat__sub" id="ofsConnSub"></span></div>
       <div class="card ofs-stat"><span class="ofs-stat__label">App version</span><strong class="ofs-stat__value" id="ofsVersion">&ndash;</strong><span class="ofs-stat__sub" id="ofsShell"></span></div>
-      <div class="card ofs-stat"><span class="ofs-stat__label">This computer's ID</span><strong class="ofs-stat__value ofs-mono" id="ofsDevice">&ndash;</strong><span class="ofs-stat__sub">Made in this browser; it identifies the computer, not a person.</span></div>
+      <div class="card ofs-stat"><span class="ofs-stat__label">This computer</span><strong class="ofs-stat__value ofs-mono" id="ofsCode">&ndash;</strong><span class="ofs-stat__sub ofs-mono" id="ofsDevice">&ndash;</span></div>
+      <div class="card ofs-stat"><span class="ofs-stat__label">Last sync</span><strong class="ofs-stat__value" id="ofsLastSync">&ndash;</strong><span class="ofs-stat__sub" id="ofsSyncState"></span></div>
+      <div class="card ofs-stat"><span class="ofs-stat__label">Storage on this computer</span><strong class="ofs-stat__value" id="ofsStorage">&ndash;</strong><span class="ofs-stat__sub" id="ofsStorageSub"></span></div>
+    </section>
+
+    <section class="card ofs-card" aria-labelledby="ofsOnlineOnlyTitle">
+      <div class="card__head ofs-card__head"><h2 id="ofsOnlineOnlyTitle">Not available offline</h2></div>
+      <div class="card__body">
+        <p class="ofs-hint">These modules need the internet. Offline, the sidebar marks them <span class="online-only-badge">Online only</span> and their pages say so: their records are not on this computer and nothing can be saved for them here.</p>
+        <ul class="ofs-online-only" id="ofsOnlineOnly">
+          <li>Estimates</li><li>Attendance</li><li>Workshop Assets</li><li>Notifications</li><li>Staff</li><li>CRM</li><li>Inbox</li>
+        </ul>
+        <p class="ofs-hint">Also online-only, by design: user accounts, roles and permissions, settings, and deleting or voiding anything.</p>
+      </div>
+    </section>
+
+    <section class="card ofs-card" aria-labelledby="ofsSyncTitle">
+      <div class="card__head ofs-card__head">
+        <h2 id="ofsSyncTitle">Changes made offline</h2>
+        <div class="ofs-actions">
+          <button type="button" class="btn btn--primary btn--sm" id="ofsSyncNow">Sync now</button>
+          <button type="button" class="btn btn--ghost btn--sm" id="ofsRetry">Retry failed</button>
+          <button type="button" class="btn btn--ghost btn--sm" id="ofsViewPending" aria-expanded="false" aria-controls="ofsPendingBox">View pending</button>
+          <a class="btn btn--ghost btn--sm" id="ofsViewConflicts" href="sync-conflicts.html">View conflicts</a>
+          <button type="button" class="btn btn--ghost btn--sm" id="ofsViewHistory" aria-expanded="false" aria-controls="ofsHistoryBox">View sync history</button>
+        </div>
+      </div>
+      <div class="card__body">
+        <p class="ofs-hint" id="ofsSyncHint">Work done while offline is kept on this computer, encrypted, and sent to the server when the internet is back. A change shows as synced only after the server accepts it. Payments made offline stay <strong>pending</strong> (not counted in any balance) and invoices stay <strong>drafts</strong> (no number) until then.</p>
+        <div class="ofs-counts" id="ofsCounts">
+          <div class="ofs-count"><span class="ofs-count__n" id="ofsPending">&ndash;</span><span class="ofs-count__l">Waiting to sync</span></div>
+          <div class="ofs-count"><span class="ofs-count__n" id="ofsSynced">&ndash;</span><span class="ofs-count__l">Synced</span></div>
+          <div class="ofs-count"><span class="ofs-count__n" id="ofsFailed">&ndash;</span><span class="ofs-count__l">Failed</span></div>
+          <div class="ofs-count"><span class="ofs-count__n" id="ofsConflicts">&ndash;</span><span class="ofs-count__l">Conflicts</span></div>
+          <div class="ofs-count"><span class="ofs-count__n" id="ofsDrafts">&ndash;</span><span class="ofs-count__l">Draft invoices</span></div>
+          <div class="ofs-count"><span class="ofs-count__n" id="ofsPayments">&ndash;</span><span class="ofs-count__l">Pending payments</span></div>
+          <div class="ofs-count"><span class="ofs-count__n" id="ofsInventory">&ndash;</span><span class="ofs-count__l">Inventory review</span></div>
+        </div>
+        <p class="ofs-note" id="ofsCountsNote" role="status"></p>
+        <form class="ofs-recover" id="ofsRecover" hidden novalidate>
+          <p class="ofs-hint"><strong>Changes made offline on this computer are locked under a previous password</strong> (the password was reset or changed elsewhere). They are kept, encrypted. Enter the password you used when you made them to unlock and send them.</p>
+          <div class="ofs-recover__row">
+            <input class="input" type="password" id="ofsRecoverPw" autocomplete="current-password" placeholder="Previous password" aria-label="Previous password">
+            <button type="submit" class="btn btn--primary btn--sm">Unlock my offline changes</button>
+          </div>
+          <p class="login__error" id="ofsRecoverErr" role="alert"></p>
+        </form>
+        <div id="ofsPendingBox" hidden>
+          <h3 class="ofs-sub-title">Waiting on this computer</h3>
+          <div class="table-wrap"><table class="table ofs-table"><thead><tr><th scope="col">Change</th><th scope="col">Record</th><th scope="col">Made</th><th scope="col">Status</th><th scope="col">Detail</th></tr></thead><tbody id="ofsPendingList"></tbody></table></div>
+        </div>
+        <div id="ofsHistoryBox" hidden>
+          <h3 class="ofs-sub-title">Sync history</h3>
+          <ul class="ofs-history" id="ofsHistory"></ul>
+        </div>
+      </div>
     </section>
 
     <section class="card ofs-card" aria-labelledby="ofsCopiesTitle">
@@ -61,7 +116,7 @@
         </div>
       </div>
       <div class="card__body">
-        <p class="ofs-hint">When this computer is offline, someone who has signed in here online can open a <strong>read-only</strong> copy of what their role could see, with the same password. Each copy is encrypted and opens only with its owner's password. A copy older than <span id="ofsDays">7</span> days will not open.</p>
+        <p class="ofs-hint">When this computer is offline, someone who has signed in here online can keep working with a copy of what their role could see, with the same password. Each copy is encrypted and opens only with its owner's password. Offline access lasts <span id="ofsDays">14</span> days after you last signed in online here; then the copy will not open until you sign in online again.</p>
         <div class="table-wrap">
           <table class="table ofs-table">
             <thead><tr><th scope="col">Person</th><th scope="col">Role</th><th scope="col">Copy saved</th><th scope="col">Opens until</th><th scope="col">Size</th><th scope="col"><span class="ofs-sr">Actions</span></th></tr></thead>
@@ -72,17 +127,10 @@
       </div>
     </section>
 
-    <section class="card ofs-card" aria-labelledby="ofsSyncTitle">
-      <div class="card__head ofs-card__head"><h2 id="ofsSyncTitle">Changes made offline</h2></div>
-      <div class="card__body">
-        <p class="ofs-hint"><strong>Not available in this version.</strong> The offline copy is read-only: a record cannot be created or changed while this computer is offline, and the screens say so. Nothing is waiting to be sent, so nothing can be lost here.</p>
-        <p class="ofs-hint">Saving changes offline and sending them to the shared database later (a queue per computer, safe numbering, and rules for money and stock) is the next phase. See <code>OFFLINE_SYSTEM.md</code>.</p>
-      </div>
-    </section>
 
     <section class="ofs-warn" aria-labelledby="ofsWarnTitle">
       <h2 id="ofsWarnTitle">Before clearing browser data</h2>
-      <p>Clearing this browser's site data (or "cookies and site data" for this site) removes the offline copies and the offline app. It removes nothing from the shared database. Everyone just needs to sign in online once again to make a new copy.</p>
+      <p>Clearing this browser's site data (or "cookies and site data" for this site) removes the offline copies, the offline app <strong>and any changes made offline that have not synced yet</strong>. Sync first (the counts above must show nothing waiting). It removes nothing from the shared database.</p>
     </section>
 
   </div>
@@ -91,6 +139,7 @@
   <script src="../js/seed-data.js"></script>
   <script src="../js/version.js"></script>
   <script src="../js/offline.js"></script>
+  <script src="../js/sync.js"></script>
   <script src="../js/storage.js"></script>
   <script src="../js/utils.js"></script>
   <script src="../js/app.js"></script>

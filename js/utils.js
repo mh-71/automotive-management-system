@@ -286,13 +286,16 @@ const Utils = (() => {
         return { ok: false, error: `Insufficient stock for ${part.name}. Available: ${prevStock}, Required: ${qty}.` };
       }
 
-      if (Storage.isApi()) {
+      if (Storage.serverRules()) {
         const res = await Storage.create('inventoryTransactions', {
           partId, type, quantity: qty,
           unitCost: unitCost != null && unitCost !== '' ? Number(unitCost) : null,
           referenceType, referenceId, reason, notes
         });
         if (!res.ok) return { ok: false, error: res.message };
+        // Offline: queued. The stock shown does not move until the server
+        // applies the movement under its own rules.
+        if (res.pending) return { ok: true, pending: true, transaction: res.record, newStock: prevStock };
         // The stock the server settled on, re-read rather than assumed. If
         // that re-read fails the movement still happened, so it is reported
         // as a success carrying `stale` rather than as a failure.

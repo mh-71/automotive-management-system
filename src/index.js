@@ -143,6 +143,11 @@ import { getWebsiteBookings } from './routes/website-bookings.js';
 // a successful create/status change into a notification (lib/notifications.js).
 import { notifications, NOTIFICATION_ROUTES } from './routes/notifications.js';
 import { withNotification } from './lib/notifications.js';
+// Offline sync (0020): devices, push / pull, conflicts and invoice drafts.
+// Operations are applied through the routes above, as the person who made them.
+import { sync, SYNC_ROUTES } from './routes/sync.js';
+// What every successful write changed, for devices to pull (0020).
+import { withChanges } from './lib/changes.js';
 
 /**
  * Every collection exposes the same two shapes: a list at
@@ -318,6 +323,7 @@ const ROUTES = [
   // (routes/website-forms.js).
   'POST /api/forms/submit',
   ...NOTIFICATION_ROUTES,
+  ...SYNC_ROUTES,
   // The signed-in person's own password, and the shared passphrase switch
   // (0019): public dispatch, each checks the person's own session itself.
   'POST /api/session/password',
@@ -422,7 +428,7 @@ async function proxyWebsiteBookings() {
   }
 }
 
-export default {
+const worker = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -518,6 +524,14 @@ export default {
       return run(notifications, url, url.pathname.slice('/api/notifications/'.length));
     }
 
+    // Offline sync (0020): behind the gate; each route also checks the
+    // permission it needs (routes/sync.js). Operations are applied by calling
+    // this same Worker, so every existing rule still applies to them.
+    if (/^\/api\/(sync|devices|invoice-drafts)(\/|$)/.test(url.pathname)) {
+      // Internal calls carry the sync request's metered environment (routes/sync.js meter()).
+      return run(sync, url, (req, meteredEnv) => worker.fetch(req, meteredEnv || env, ctx), ctx);
+    }
+
     // The exact path only. Anything below it (/api/settings/1, and there is
     // no other id a singleton could have) is left to fall through to the
     // 404 below rather than being handed to a detail handler that does not
@@ -549,7 +563,7 @@ export default {
           need = collectionPermission(name, 'create');
           if (request.method === 'POST' && collection.create) {
             return withNotification(request, env, ctx, name, 'create',
-              () => withActivity(request, env, name, 'create', () => run(collection.create)));
+              () => withActivity(request, env, name, 'create', () => withChanges(env, name, 'create', null, () => run(collection.create))));
           }
           return methodNotAllowed(listMethods(collection));
         }
@@ -574,7 +588,7 @@ export default {
             if (request.method !== 'POST') return methodNotAllowed(['POST']);
             need = collectionPermission(name, actionName);
             return withNotification(request, env, ctx, name, actionName,
-              () => withActivity(request, env, name, actionName, () => run(action, id.slice(0, slash))));
+              () => withActivity(request, env, name, actionName, () => withChanges(env, name, actionName, id.slice(0, slash), () => run(action, id.slice(0, slash)))));
           }
         }
 
@@ -583,10 +597,10 @@ export default {
         need = collectionPermission(name, request.method === 'PUT' ? 'update' : 'remove');
         if (request.method === 'PUT' && collection.update) {
           return withNotification(request, env, ctx, name, 'update',
-            () => withActivity(request, env, name, 'update', () => run(collection.update, id)));
+            () => withActivity(request, env, name, 'update', () => withChanges(env, name, 'update', id, () => run(collection.update, id))));
         }
         if (request.method === 'DELETE' && collection.remove) {
-          return run(collection.remove, id);
+          return withChanges(env, name, 'remove', id, () => run(collection.remove, id));
         }
         return methodNotAllowed(detailMethods(collection));
       }
@@ -595,3 +609,5 @@ export default {
     return notFound(ROUTES);
   },
 };
+
+export default worker;

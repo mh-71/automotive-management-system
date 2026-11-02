@@ -51,6 +51,8 @@ export const CATALOG = [
   { key: 'notifications', label: 'Notifications', actions: { view: 'See notifications (only for modules the role can see)' } },
   { key: 'reports', label: 'Reports', actions: { view: 'Open the reports pages', export: 'Export CRM reports (CSV)' } },
   { key: 'settings', label: 'Settings', actions: { view: 'Open the settings page', edit: 'Change workshop settings' } },
+  // Offline sync (0020): reviewing what devices pushed, and deciding conflicts.
+  { key: 'sync', label: 'Offline & Sync', actions: { view: 'See every device, sync history and conflict', manage: 'Resolve sync conflicts and revoke devices' } },
 ];
 
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'manage', 'export'];
@@ -201,6 +203,16 @@ export function routePermission(method, pathname) {
   // A person's own notifications; what they show is filtered by permission (routes/notifications.js).
   if (pathname === '/api/notifications' || pathname.startsWith('/api/notifications/')) return 'notifications.view';
   if (/^\/api\/(messenger|whatsapp)(\/|$)/.test(pathname)) return method === 'GET' ? 'inbox.view' : 'inbox.edit';
+  // Offline sync (0020). Invoice drafts are invoices; resolving a conflict is
+  // sync.manage. The rest are a PERSON'S OWN: their device, their pushes, their
+  // pulls (which return only what their role may read) and their own conflicts
+  // and history -- so any signed-in account reaches them, and the route itself
+  // widens the view to everyone's only with sync.view / sync.manage (routes/sync.js).
+  if (pathname === '/api/invoice-drafts' || pathname.startsWith('/api/invoice-drafts/')) {
+    return method === 'GET' ? 'invoices.view' : 'invoices.create';
+  }
+  if (/^\/api\/sync\/conflicts\/[^/]+\/resolve$/.test(pathname)) return 'sync.manage';
+  if (/^\/api\/(sync|devices)(\/|$)/.test(pathname)) return AUTHENTICATED;
   return FULL;
 }
 

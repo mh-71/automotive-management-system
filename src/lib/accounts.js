@@ -124,6 +124,18 @@ export async function loadSessionAccount(env, accountId, sessionVersion) {
 }
 
 /**
+ * Another account's CURRENT standing, for a decision taken on its behalf (an
+ * administrator resolving that person's offline change, 0020): whether it may
+ * still sign in, and what its role allows now. null if there is no such account.
+ */
+export async function accountStanding(env, accountId) {
+  if (!env || !env.DB || !ACCOUNT_ID.test(String(accountId || ''))) return null;
+  const row = await env.DB.prepare(`${PERSON_SQL} WHERE a.id = ?1`).bind(accountId).first();
+  if (!row) return null;
+  return { kind: 'account', id: row.id, username: row.username, active: row.status === 'Active' && row.person_status === 'Active', ...(await roleGrant(env, row)) };
+}
+
+/**
  * The one account a sign-in identifier names, or null. A Staff ID is also a
  * valid username shape (e.g. "stf-0002"); new usernames may not look like one,
  * and if an old one does and the two point at DIFFERENT accounts, the answer is

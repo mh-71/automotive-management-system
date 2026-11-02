@@ -150,6 +150,7 @@ const App = (() => {
     'inbox-website-forms': 'Website Forms',
     notifications: 'Notifications Center',
     'offline-sync': 'Offline & Sync',
+    'sync-conflicts': 'Conflict Center',
     'equipment-inventory': 'Equipment Inventory', 'maintenance-repairs': 'Maintenance & Repairs',
     'asset-assignment': 'Asset Assignment', 'asset-history': 'Asset History', 'asset-reports': 'Asset Reports'
   };
@@ -369,9 +370,10 @@ const App = (() => {
           <div class="login__head">
             <span class="badge badge--warn login__badge">No internet</span>
             <h1 class="login__title" id="offTitle">Taqwa Autos CRM</h1>
+            ${hydration && hydration.storage ? `<p class="login__error" role="alert">${Utils.esc(hydration.storage.message)}</p>` : ''}
             <p class="login__subtitle">${copies
-              ? 'The server cannot be reached. Sign in to open the <strong>read-only</strong> copy saved on this computer. Changes can be made again when the internet is back.'
-              : 'The server cannot be reached, and this computer has no saved offline copy yet. Connect to the internet and sign in once; after that, a read-only copy is kept here for offline use.'}</p>
+              ? 'The server cannot be reached. Sign in with your own password to keep working offline: your changes are kept on this computer, encrypted, and sent to the server when the internet is back (payments as <strong>pending</strong>, invoices as <strong>drafts</strong>).'
+              : 'The server cannot be reached, and this computer has no saved offline copy yet. Connect to the internet and sign in once; after that, you can work offline here for up to 14 days.'}</p>
           </div>
           ${copies ? `
           <div class="field">
@@ -417,16 +419,33 @@ const App = (() => {
     bar.className = 'offline-bar';
     bar.setAttribute('role', 'status');
     const at = Storage.offlineSavedAt ? new Date(Storage.offlineSavedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-    bar.innerHTML = `<strong>Offline.</strong> You are viewing a read-only copy saved on this computer${at ? ` (${Utils.esc(at)})` : ''}. Nothing can be changed until the internet is back.`;
+    const writable = Storage.offlineWritable && Storage.offlineWritable();
+    const waiting = () => {
+      const c = typeof Sync !== 'undefined' && Sync.isOpen() ? Sync.counts() : null;
+      return c ? c.pending + c.conflict + c.failed : 0;
+    };
+    const draw = () => {
+      if (bar.dataset.back) return;
+      const n = waiting();
+      bar.innerHTML = writable
+        ? `<strong>Offline.</strong> Working from the copy saved on this computer${at ? ` (${Utils.esc(at)})` : ''}. Changes are kept here and sent when the internet is back. <span class="offline-bar__count" id="offlineWaiting">${n} change${n === 1 ? '' : 's'} waiting</span>${n && !persisted ? ' <span class="offline-bar__warn" id="offlinePersistWarn">· This browser has not promised to keep them: do not clear site data, and sync as soon as you can.</span>' : ''} · <a href="${document.body.dataset.root || ''}pages/offline-sync.html">Offline &amp; Sync</a>`
+        : `<strong>Offline.</strong> You are viewing a read-only copy saved on this computer${at ? ` (${Utils.esc(at)})` : ''}. Nothing can be changed until the internet is back.`;
+    };
+    let persisted = true;
+    draw();
     content.prepend(bar);
+    if (typeof Sync !== 'undefined') Sync.on(draw);
+    if (typeof Offline !== 'undefined') Offline.persistence().then(p => { persisted = !!(p && p.persisted); draw(); }).catch(() => {});
     const back = async () => {
       if (bar.dataset.back) return;
       const probe = await Api.probe({ timeoutMs: 4000 });
       if (!probe.ok) return;
       bar.dataset.back = '1';
       bar.classList.add('offline-bar--back');
-      bar.innerHTML = '<strong>The internet is back.</strong> Sign in again to work online and see the latest records. <button type="button" class="btn btn--primary btn--sm" data-online>Go online</button>';
-      bar.querySelector('[data-online]').addEventListener('click', () => { Storage.lockOffline(); location.reload(); });
+      const n = waiting();
+      bar.innerHTML = `<strong>The internet is back.</strong> ${n ? `${n} change${n === 1 ? '' : 's'} made offline will be sent to the server.` : 'Go online to see the latest records.'} <button type="button" class="btn btn--primary btn--sm" data-online>Go online</button>`;
+      // The journal's key stays with the tab, so the changes are sent as soon as the page is online.
+      bar.querySelector('[data-online]').addEventListener('click', () => { Storage.lockOffline({ keepJournal: true }); location.reload(); });
     };
     window.addEventListener('online', back);
     if (typeof setInterval === 'function') setInterval(back, 30000);
@@ -475,9 +494,11 @@ const App = (() => {
       if (nw.value !== rep.value) { setErr('pw-repeat', 'The two new passwords do not match.'); rep.focus(); return; }
       btn.disabled = true; btn.textContent = 'Saving…';
       const chosen = nw.value;
-      const res = await Api.changePassword(cur.value, chosen);
+      const previous = cur.value;
+      const res = await Api.changePassword(previous, chosen);
       cur.value = ''; nw.value = ''; rep.value = '';
-      if (res.ok) await Storage.enrollOffline(chosen);
+      // The previous password re-wraps any unsynced offline work for the new one (kept in memory only here).
+      if (res.ok) await Storage.enrollOffline(chosen, undefined, { oldPassword: previous });
       if (!res.ok) {
         btn.disabled = false; btn.textContent = 'Save password';
         const f = res.fields || {};
@@ -523,6 +544,10 @@ const App = (() => {
     if (kind === 'offline') {
       const at = Storage.offlineSavedAt ? new Date(Storage.offlineSavedAt) : null;
       const when = at && !Number.isNaN(at.getTime()) ? at.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'earlier';
+      if (Storage.offlineWritable && Storage.offlineWritable()) {
+        return { offline: true, label: 'Offline — changes kept here',
+                 title: `No internet. Working from the copy saved on this computer (${when}). Changes are kept here and sent when the internet is back.` };
+      }
       return { offline: true, label: 'Offline — read-only copy',
                title: `No internet. Showing the copy saved on this computer (${when}). Nothing can be changed until the internet is back.` };
     }
@@ -963,6 +988,56 @@ const App = (() => {
     'asset-assignment': 'tools.view', 'asset-history': 'tools.view', 'asset-reports': 'tools.view',
     notifications: 'notifications.view',
   };
+  /**
+   * The modules that do NOT work offline (M10): their records are read on
+   * demand and are not in the offline copy, and nothing can be saved for them
+   * on this computer. Offline, the sidebar marks them and their pages say so.
+   * (Accounts, roles and settings are online-only by design: under Staff and Settings.)
+   */
+  const ONLINE_ONLY = {
+    estimates: 'Estimates', 'estimate-create': 'Estimates', 'estimate-details': 'Estimates',
+    'staff-attendance': 'Attendance',
+    'workshop-tools': 'Workshop Assets', 'equipment-inventory': 'Workshop Assets', 'maintenance-repairs': 'Workshop Assets',
+    'asset-assignment': 'Workshop Assets', 'asset-history': 'Workshop Assets', 'asset-reports': 'Workshop Assets',
+    notifications: 'Notifications',
+    'staff-management': 'Staff', 'staff-list': 'Staff', 'staff-add': 'Staff', 'staff-performance': 'Staff',
+    'staff-accounts': 'Staff', 'staff-roles': 'Staff', 'staff-leave': 'Staff', 'staff-activity-log': 'Staff',
+    'crm-reminders': 'CRM', 'crm-follow-up': 'CRM', 'crm-history': 'CRM', 'crm-tasks': 'CRM', 'crm-reports': 'CRM',
+    'inbox-conversations': 'Inbox', 'inbox-facebook': 'Inbox', 'inbox-whatsapp': 'Inbox', 'inbox-website-forms': 'Inbox',
+    settings: 'Settings',
+  };
+  const ONLINE_ONLY_MODULES = ['Estimates', 'Attendance', 'Workshop Assets', 'Notifications', 'Staff', 'CRM', 'Inbox'];
+
+  /** Offline: mark every online-only link in the sidebar, and say so on an online-only page. */
+  function markOnlineOnly() {
+    if (!(Storage.isOffline && Storage.isOffline())) return;
+    document.querySelectorAll('.sidebar a[href]').forEach(a => {
+      const key = pageOfHref(a.getAttribute('href'));
+      if (!key || !ONLINE_ONLY[key] || a.querySelector('.online-only-badge')) return;
+      a.classList.add('is-online-only');
+      a.setAttribute('title', `${ONLINE_ONLY[key]} needs the internet: not available offline.`);
+      a.insertAdjacentHTML('beforeend', '<span class="online-only-badge">Online only</span>');
+    });
+    // A group whose every link is online-only is marked too.
+    document.querySelectorAll('.sidebar details').forEach(group => {
+      const links = [...group.querySelectorAll('a[href]')];
+      const summary = group.querySelector('summary');
+      if (summary && links.length && links.every(a => a.classList.contains('is-online-only')) && !summary.querySelector('.online-only-badge')) {
+        summary.insertAdjacentHTML('beforeend', '<span class="online-only-badge">Online only</span>');
+      }
+    });
+    const page = document.body.dataset.page || 'dashboard';
+    const content = document.getElementById('page-content');
+    if (ONLINE_ONLY[page] && content && !document.getElementById('onlineOnlyNotice')) {
+      content.insertAdjacentHTML('afterbegin', `
+        <section class="card online-only-notice" id="onlineOnlyNotice" role="alert">
+          <h2>${Utils.esc(ONLINE_ONLY[page])} is online-only</h2>
+          <p>It does not work offline: its records are not on this computer, and nothing can be saved for it here. Connect to the internet to use it.</p>
+          <p class="online-only-notice__list">Offline you can use Customers, Vehicles, Appointments, Job Cards, Invoices (drafts), Payments (pending), Inventory, Expenses, Services, Mechanics, the Dashboard and Reports. Online only: ${ONLINE_ONLY_MODULES.join(', ')}.</p>
+        </section>`);
+    }
+  }
+
   /** The page key behind a sidebar link: 'pages/invoices.html' -> 'invoices', 'index.html' -> 'dashboard'. */
   const pageOfHref = href => {
     const m = /(?:^|\/)([a-z0-9-]+)\.html(?:[?#].*)?$/.exec(String(href || ''));
@@ -1128,10 +1203,95 @@ const App = (() => {
   }
   /* After the page is shown: online, refresh this person's offline copy; offline, say so. */
   function afterReveal() {
-    if (Storage.isOffline && Storage.isOffline()) { showOfflineBar(); return; }
+    if (Storage.isOffline && Storage.isOffline()) { markOnlineOnly(); showOfflineBar(); showPendingPanel(); return; }
     if (Storage.isApi() && typeof Storage.saveOfflineCopy === 'function' && typeof setTimeout === 'function') {
       setTimeout(() => { Storage.saveOfflineCopy().catch(() => {}); }, 1500);
     }
+    showPendingPanel();
+    startSync();
+  }
+
+  /**
+   * Online, for a personal account: send what was made offline, then pull
+   * what changed (js/sync.js). On opening the app, when the browser says the
+   * network is back, when the tab comes to the front, and every minute while
+   * something is still waiting.
+   */
+  let syncStarted = false;
+  function startSync() {
+    if (syncStarted || typeof Sync === 'undefined' || !Storage.isApi() || !Storage.account || !Api.sameOrigin
+      || typeof Offline === 'undefined' || !Offline.supported() || typeof setTimeout !== 'function') return;
+    syncStarted = true;
+    // M8: ask the browser to keep this computer's offline data (shown on Offline & Sync).
+    Offline.ensurePersistent().catch(() => null);
+    const go = reason => Sync.run({ reason }).then(r => {
+      if (r && r.ok && r.sent) {
+        Utils.toast(`${r.sent} change${r.sent === 1 ? '' : 's'} made offline ${r.sent === 1 ? 'was' : 'were'} accepted by the server.`, 'success');
+        showSyncedBar(r.sent);
+      }
+      showPendingPanel();
+    }).catch(() => {});
+    setTimeout(() => go('open'), 800);
+    window.addEventListener('online', () => go('online'));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && Sync.isOpen() && Sync.counts().pending) go('focus'); });
+    if (typeof setInterval === 'function') setInterval(() => { if (Sync.isOpen() && Sync.counts().pending) go('timer'); }, 60000);
+  }
+
+  /** After a sync changed what is on screen: offer to show the server's records. */
+  function showSyncedBar(n) {
+    const content = document.getElementById('content') || document.querySelector('main');
+    if (!content || document.getElementById('syncedBar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'syncedBar';
+    bar.className = 'offline-bar offline-bar--back';
+    bar.setAttribute('role', 'status');
+    bar.innerHTML = `<strong>Synced.</strong> ${n} offline change${n === 1 ? '' : 's'} now ${n === 1 ? 'has its' : 'have their'} official server ids. <button type="button" class="btn btn--primary btn--sm" data-refresh>Show the latest</button>`;
+    bar.querySelector('[data-refresh]').addEventListener('click', () => location.reload());
+    content.prepend(bar);
+  }
+
+  /**
+   * Payments, invoices and stock moves made offline are kept APART from the
+   * confirmed records (so no balance or stock counts them): this panel is
+   * where they are seen, on their own page, until the server accepts them.
+   */
+  function showPendingPanel() {
+    if (typeof Sync === 'undefined' || !Sync.isOpen() || !document.body) return;
+    const kind = { payments: 'payments', invoices: 'invoiceDrafts', inventory: 'inventoryTransactions' }[document.body.dataset.page];
+    const host = document.getElementById('page-content');
+    if (!kind || !host) return;
+    const rows = Sync.pending(kind);
+    let panel = document.getElementById('pendingPanel');
+    if (!rows.length) { if (panel) panel.remove(); return; }
+    if (!panel) {
+      panel = document.createElement('section');
+      panel.id = 'pendingPanel';
+      panel.className = 'card pending-panel';
+      host.prepend(panel);
+      Sync.on(() => showPendingPanel());
+    }
+    const esc = Utils.esc;
+    const money = v => (Utils.formatCurrency ? Utils.formatCurrency(v) : String(v));
+    const cust = id => { const c = Storage.getById('customers', id); return c ? c.name : (id || ''); };
+    const stateBadge = r => {
+      const s = (r._sync && r._sync.state) || 'pending';
+      const label = { pending: 'Waiting to sync', conflict: 'Needs review', failed: 'Failed', dismissed: 'Not accepted' }[s] || s;
+      return `<span class="badge ${s === 'pending' ? 'badge--warn' : s === 'dismissed' || s === 'failed' ? 'badge--bad' : 'badge--info'}" title="${esc((r._sync && r._sync.error) || '')}">${esc(label)}</span>`;
+    };
+    const titles = {
+      payments: ['Pending payments — not confirmed', 'Recorded offline. They are not counted in any balance until the server accepts them.'],
+      invoiceDrafts: ['Invoice drafts made offline', 'No invoice number yet. Each becomes an invoice only when an authorized person finalizes it online.'],
+      inventoryTransactions: ['Stock movements waiting to sync', 'Stock changes only when the server applies them under its stock rules.'],
+    }[kind];
+    const body = rows.map(r => kind === 'payments'
+      ? `<tr><td>${esc(r.id)}</td><td>${esc(cust(r.customerId))}</td><td>${esc(money(r.amount))}</td><td>${esc(r.method || '')}</td><td>${esc(r.date || '')}</td><td>${stateBadge(r)}</td></tr>`
+      : kind === 'invoiceDrafts'
+        ? `<tr><td>${esc(r.id)}</td><td>${esc(r.jobCardId)}</td><td>${esc(cust(r.customerId))}</td><td>${esc(money(r.localTotal))}</td><td>${esc(r.date || '')}</td><td>${stateBadge(r)}</td></tr>`
+        : `<tr><td>${esc(r.id)}</td><td>${esc(r.partId)}</td><td>${esc(r.type)}</td><td>${esc(String(r.quantity))}</td><td>${esc(r.notes || '')}</td><td>${stateBadge(r)}</td></tr>`).join('');
+    const head = kind === 'payments' ? ['Ref', 'Customer', 'Amount', 'Method', 'Date', 'Status']
+      : kind === 'invoiceDrafts' ? ['Draft', 'Job card', 'Customer', 'Total seen', 'Date', 'Status'] : ['Ref', 'Part', 'Type', 'Qty', 'Notes', 'Status'];
+    panel.innerHTML = `<div class="card__head"><h2>${esc(titles[0])}</h2></div><div class="card__body"><p class="ofs-hint">${esc(titles[1])}</p>
+      <div class="table-wrap"><table class="table" id="pendingTable"><thead><tr>${head.map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div></div>`;
   }
 
   function completeShell() {

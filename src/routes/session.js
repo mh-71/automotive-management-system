@@ -41,6 +41,7 @@ import { checkAccountSignIn, passphraseEnabled, passwordProblem, hashPassword, P
 import { verifyPassword } from '../lib/passwords.js';
 import { throttleKeys, isThrottled, recordFailure, clearIdentifier, WINDOW_MINUTES } from '../lib/throttle.js';
 import { hasFullAccess, permissionsOf } from '../lib/permissions.js';
+import { currentCursor } from './sync.js';
 
 /** 204: there is nothing to say, and a body would only be a place to leak. */
 function noContent(cookie) {
@@ -235,6 +236,11 @@ async function readSession(request, env) {
       // what will work. For display only: the server checks every request
       // itself and never reads this back.
       ...(who ? { fullAccess: hasFullAccess(who), permissions: permissionsOf(who) } : {}),
+      // Offline sync (0020), for a personal account: the server's clock (the
+      // 14-day offline window is measured from it, not from the device's) and
+      // the change-log position the data read after this answer is at least
+      // as new as -- where this device's next pull starts.
+      ...(who && who.kind === 'account' ? { serverTime: new Date().toISOString(), syncCursor: await currentCursor(env) } : {}),
     },
     {},
     200

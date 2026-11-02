@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 151 routes', routes.length === 151, routes);
+  t('advertises 165 routes', routes.length === 165, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('61 GET, 55 POST, 23 PUT, 12 DELETE',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 61, POST: 55, PUT: 23, DELETE: 12 }), byMethod);
+    t('69 GET, 60 POST, 23 PUT, 13 DELETE (0020 added offline sync)',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 69, POST: 60, PUT: 23, DELETE: 13 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));
@@ -100,7 +100,8 @@ sec('1. Health');
         'GET /api/whatsapp/conversations/:id/messages', 'POST /api/whatsapp/conversations/:id/reply',
         'POST /api/whatsapp/conversations/:id/read', 'POST /api/whatsapp/conversations/:id/unread',
         'PUT /api/whatsapp/conversations/:id/status',
-        'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread']), routes);
+        'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread',
+        'POST /api/sync/conflicts/:id/resolve', 'POST /api/invoice-drafts/:id/finalize', 'POST /api/invoice-drafts/:id/discard']), routes);
   t('advertises invoices routes', routes.includes('GET /api/invoices') && routes.includes('GET /api/invoices/:id'));
   t('advertises payments routes', routes.includes('GET /api/payments') && routes.includes('GET /api/payments/:id'));
   t('advertises expenses routes', routes.includes('GET /api/expenses') && routes.includes('GET /api/expenses/:id'));

@@ -1432,14 +1432,16 @@
       // is the lines -- not a subtotal it would have to take on trust. Local
       // mode has no server, so there the computed record is stored as built.
       const record = buildRecord(v);
+      // Offline (js/sync.js) the same body is queued for the server; the
+      // computed record is what this computer shows until the server answers.
       const created = await Storage.create('jobCards', {
-        ...(Storage.isApi() ? forApi(record) : record),
+        ...(Storage.serverRules() ? forApi(record) : record),
         appointmentId: v.appointmentId || null,
         invoiceId: null,
         completedAt: null,
         actualDelivery: '',
         status: 'Received'
-      });
+      }, { display: record });
       if (!Utils.wrote(created, ov)) return;
       const rec = created.record;
 
@@ -1451,7 +1453,7 @@
         if (a && !a.jobCardId) {
           // The same transaction stamped the appointment's jobCardId server
           // side; re-reading is how this copy learns about it.
-          if (Storage.isApi()) await Storage.refreshAll('appointments');
+          if (Storage.serverRules()) await Storage.refreshAll('appointments');
           else Storage.updateData('appointments', v.appointmentId, { jobCardId: rec.id });
         }
       }
@@ -1490,8 +1492,10 @@
       // -- is one transaction on the server, guarded so a plan made against a
       // stale issued balance rolls the batch back rather than deducting the
       // same units twice. Reconciling here as well would deduct them twice.
-      if (Storage.isApi()) {
-        const res = await Storage.update('jobCards', id, forApi(proposed));
+      if (Storage.serverRules()) {
+        // Offline, parts changes are queued as per-part movements (+ use /
+        // - return) that the server applies through its own stock rules.
+        const res = await Storage.update('jobCards', id, forApi(proposed), { display: proposed });
         if (!res.ok) {
           if (res.status === 409 && res.errorReason === 'insufficient_stock') {
             // A shortage, in the server's own words, in the dialog this
@@ -1596,7 +1600,7 @@
       // actualDelivery and the appointment sync all move together, or none
       // of them does. Repeating any of it here would apply it twice, and
       // the deduction's own NOT EXISTS would then refuse the second.
-      if (Storage.isApi()) {
+      if (Storage.serverRules()) {
         const res = await Storage.action('jobCards', id, 'status', { status: next },
           ['parts', 'inventoryTransactions', 'appointments']);
         if (!res.ok) {

@@ -26,6 +26,19 @@
 -- the foreign keys.
 -- 0010: attendance references mechanics or staff (CASCADE), and nothing
 -- references it, so it goes first of all.
+-- 0020: offline sync rows the suite (or a browser check) created. Drafts
+-- reference job cards, so they go before them; the rest reference nothing
+-- the fixtures own. The change log is the triggers' record of the suite's
+-- own writes.
+DELETE FROM sync_conflict_events;
+DELETE FROM sync_conflicts;
+DELETE FROM offline_stock_movements;
+DELETE FROM invoice_drafts;
+DELETE FROM sync_ops;
+DELETE FROM sync_ops_locks;
+DELETE FROM device_accounts;
+DELETE FROM devices;
+DELETE FROM change_log;
 -- 0019: failed sign-in counts the suite caused, and the passphrase switch back on.
 DELETE FROM auth_throttle;
 UPDATE auth_settings SET passphrase_enabled = 1, updated_at = NULL, updated_by = NULL WHERE id = 1;

@@ -83,7 +83,9 @@ function stubDB({
     all(fragment) { return calls.filter((c) => c.sql.includes(fragment)); },
     prepare(sql) {
       const entry = { sql, binds: null };
-      calls.push(entry);
+      // The router logs each successful write for offline sync (0020, lib/changes.js)
+      // AFTER it commits; these assertions are about the route's own statements.
+      if (!/INSERT INTO change_log/.test(sql)) calls.push(entry);
       const stmt = {
         bind(...args) { entry.binds = args; return stmt; },
         async first() {
@@ -661,7 +663,7 @@ for (const [path, method, body] of [
   ok_('health advertises all four new routes',
     ['POST /api/invoices', 'PUT /api/invoices/:id', 'DELETE /api/invoices/:id',
       'POST /api/invoices/:id/void'].every((r) => routes.includes(r)), routes);
-  check('   ...and the registry is 151 routes', routes.length, 151);
+  check('   ...and the registry is 165 routes', routes.length, 165);
   ok_('   ...with no PUT or DELETE on the void path',
     !routes.includes('PUT /api/invoices/:id/void')
       && !routes.includes('DELETE /api/invoices/:id/void'), routes);

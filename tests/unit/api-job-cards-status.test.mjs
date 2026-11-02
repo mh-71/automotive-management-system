@@ -86,7 +86,9 @@ function stubDB({
     all(fragment) { return calls.filter((c) => c.sql.includes(fragment)); },
     prepare(sql) {
       const entry = { sql, binds: null };
-      calls.push(entry);
+      // The router logs each successful write for offline sync (0020, lib/changes.js)
+      // AFTER it commits; these assertions are about the route's own statements.
+      if (!/INSERT INTO change_log/.test(sql)) calls.push(entry);
       const stmt = {
         bind(...args) { entry.binds = args; return stmt; },
         async first() {
@@ -774,7 +776,7 @@ console.log('\n-- 10. The money and the links are left alone --');
 {
   const routes = (await (await call('/api/health', { DB: stubDB() }, 'GET')).json()).data.routes;
   check('health advertises the status route', routes.includes('POST /api/job-cards/:id/status'), true);
-  check('   ...and the registry is 151 routes', routes.length, 151);
+  check('   ...and the registry is 165 routes', routes.length, 165);
   // C-7 added voiding an invoice and C-8 voiding and linking a payment.
   // Every action route is a POST under a record, and no collection has more
   // than the ones it declares.
@@ -807,7 +809,9 @@ console.log('\n-- 10. The money and the links are left alone --');
       'POST /api/whatsapp/conversations/:id/read', 'POST /api/whatsapp/conversations/:id/unread',
       'PUT /api/whatsapp/conversations/:id/status',
       // 0017: marking one notification read or unread.
-      'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread']);
+      'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread',
+      // 0020: deciding a sync conflict, finalizing or discarding an invoice draft.
+      'POST /api/sync/conflicts/:id/resolve', 'POST /api/invoice-drafts/:id/finalize', 'POST /api/invoice-drafts/:id/discard']);
   ok_('   ...and no PUT or DELETE on it',
     !routes.includes('PUT /api/job-cards/:id/status')
       && !routes.includes('DELETE /api/job-cards/:id/status'), routes);

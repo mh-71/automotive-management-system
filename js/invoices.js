@@ -160,7 +160,7 @@
     // not match the job card it claims to bill. So only the two fields that
     // are genuinely the user's are sent, and the eligibility rules are the
     // server's `ux_invoices_live_job_card` and its status checks.
-    if (Storage.isApi()) {
+    if (Storage.serverRules()) {
       return (async () => {
         const res = await Storage.create('invoices', {
           jobCardId: job.id,
@@ -168,6 +168,9 @@
           ...(notes && notes.trim() ? { notes: notes.trim() } : {})
         });
         if (!res.ok) return { ok: false, reason: res.message, response: res };
+        // Offline: a DRAFT, kept on this computer. No invoice exists and no
+        // number is given until an authorized person finalizes it online.
+        if (res.draft) return { ok: true, draft: res.record };
         // The server applied the job card's advances in the same transaction,
         // so the payments it linked are stale here as well as the job card.
         const stale = await Storage.refreshAll('jobCards', 'payments');
@@ -471,6 +474,10 @@
       }
       Modal.close();
       refresh();
+      if (result.draft) {
+        toast(`Saved offline as invoice DRAFT ${result.draft.id}. It has no invoice number: it becomes an invoice only when finalized online (Offline & Sync).`, 'info');
+        return;
+      }
       const nApplied = (result.appliedAdvances || []).length;
       if (result.stale && result.stale.length) Utils.wrote(result);
       else if (nApplied) toast(`Invoice ${result.invoice.id} created. ${nApplied} advance${nApplied > 1 ? 's' : ''} (${money(sumAmounts(result.appliedAdvances))}) applied.`);

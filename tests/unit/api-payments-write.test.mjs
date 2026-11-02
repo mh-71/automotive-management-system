@@ -67,7 +67,9 @@ function stubDB({
     all(fragment) { return calls.filter((c) => c.sql.includes(fragment)); },
     prepare(sql) {
       const entry = { sql, binds: null };
-      calls.push(entry);
+      // The router logs each successful write for offline sync (0020, lib/changes.js)
+      // AFTER it commits; these assertions are about the route's own statements.
+      if (!/INSERT INTO change_log/.test(sql)) calls.push(entry);
       const stmt = {
         bind(...args) { entry.binds = args; return stmt; },
         async first() {
@@ -699,11 +701,11 @@ for (const [path, method, body] of [
     ['POST /api/payments', 'PUT /api/payments/:id', 'DELETE /api/payments/:id',
       'POST /api/payments/:id/void', 'POST /api/payments/:id/link'].every((r) => routes.includes(r)),
     routes);
-  check('   ...and the registry is 151 routes', routes.length, 151);
+  check('   ...and the registry is 165 routes', routes.length, 165);
   ok_('   ...with no PUT or DELETE on either action path',
     !routes.some((r) => /\/(void|link)$/.test(r) && !r.startsWith('POST ')), routes);
-  check('   ...twenty-one action routes in all (0002 added reversing a write-off; 0005 four follow-up actions; 0006 three task actions; 0007 five estimate actions; 0009 setting an account password; 0011 approving and rejecting leave; 0013 retiring a tool; 0014 four per-conversation Messenger routes; 0015 five per-conversation WhatsApp routes; 0017 marking a notification read or unread)',
-    routes.filter((r) => /\/:id\/[a-z-]+$/.test(r)).length, 32);
+  check('   ...thirty-five action routes in all (0002 added reversing a write-off; 0005 four follow-up actions; 0006 three task actions; 0007 five estimate actions; 0009 setting an account password; 0011 approving and rejecting leave; 0013 retiring a tool; 0014 four per-conversation Messenger routes; 0015 five per-conversation WhatsApp routes; 0017 marking a notification read or unread, 0020 resolving a sync conflict and finalizing or discarding an invoice draft)',
+    routes.filter((r) => /\/:id\/[a-z-]+$/.test(r)).length, 35);
 }
 {
   const res = await call('/api/payments/PAY-0001/unlink', { DB: stubDB() }, 'POST', {});

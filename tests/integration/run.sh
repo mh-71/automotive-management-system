@@ -205,6 +205,7 @@ COUNTS=$(d1 "SELECT (SELECT count(*) FROM services) + (SELECT count(*) FROM cust
                     + (SELECT count(*) FROM notifications) + (SELECT count(*) FROM notification_reads)
                     + (SELECT count(*) FROM auth_throttle)
                     + (SELECT count(*) FROM settings)
+                    + (SELECT count(*) FROM devices) + (SELECT count(*) FROM sync_ops) + (SELECT count(*) FROM invoice_drafts)
                     + (SELECT count(*) FROM roles WHERE id > 'ROL-0008')
                     + (SELECT sum(last_value) FROM id_counters WHERE collection <> 'roles')
                     + (SELECT abs(last_value - 8) FROM id_counters WHERE collection = 'roles') AS n" \

@@ -151,8 +151,21 @@ const Storage = (() => {
      (js/offline.js) is open. Reads come from it; every write is refused. */
   const isOffline = () => mode === 'offline';
   let offlineSavedAt = null;
-  const OFFLINE_MESSAGE = 'You are offline. This is a read-only copy: changes can be saved when the internet is back.';
+  // Offline, a refusal means one of two things: this part of the CRM is
+  // online-only (accounts, roles, settings, the on-demand modules), or changes
+  // cannot be saved on this computer right now (no journal open). Either way:
+  const OFFLINE_MESSAGE = 'You are offline. This needs the internet: it is not available offline, and nothing was saved.';
   const offlineRefusal = () => ({ ok: false, code: 'offline', message: OFFLINE_MESSAGE });
+  /* Phases 2-4 (js/sync.js): with the person's journal open, writes made
+     offline are kept on this computer and sent when the server is back. */
+  const syncReady = () => typeof Sync !== 'undefined' && (bindSync(), Sync.isOpen());
+  const offlineWrite = () => isOffline() && syncReady();
+  // The change-log position this page's data is at least as new as, and the
+  // server's clock when it said so (0020): the next pull starts here, and the
+  // 14-day offline window is measured from the server's time, not this computer's.
+  let serverCursor = null;
+  let serverTime = null;
+  let clientAtServerTime = null;
 
   /* ---------- low-level helpers ---------- */
 
@@ -285,8 +298,9 @@ const Storage = (() => {
    * fields? } -- never throws, never rejects. In 'local' mode they wrap the
    * synchronous writers so a caller can use one shape everywhere.
    */
-  async function create(collection, record) {
+  async function create(collection, record, opts = {}) {
     if (isLocked()) return lockedRefusal();
+    if (offlineWrite()) return Sync.create(collection, record, opts.display);
     if (isOffline()) return offlineRefusal();
     if (!isApi() && isApiOnly(collection)) return apiOnlyRefusal();
     if (!isApi()) {
@@ -300,8 +314,15 @@ const Storage = (() => {
     return { ok: true, record: cachePut(collection, res.data), meta: res.meta || {} };
   }
 
-  async function update(collection, id, changes) {
+  async function update(collection, id, changes, opts = {}) {
     if (isLocked()) return lockedRefusal();
+    // Offline -- or online, for a record that so far exists only on this
+    // computer (OFF-...): the change joins the queue, which is sent at once.
+    if (offlineWrite() || (isApi() && syncReady() && Sync.isTemp(id))) {
+      const res = await Sync.update(collection, id, changes, opts.display);
+      if (isApi() && res.ok) Sync.run({ reason: 'write' });
+      return res;
+    }
     if (isOffline()) return offlineRefusal();
     if (!isApi() && isApiOnly(collection)) return apiOnlyRefusal();
     if (!isApi()) {
@@ -317,7 +338,11 @@ const Storage = (() => {
 
   async function remove(collection, id) {
     if (isLocked()) return lockedRefusal();
-    if (isOffline()) return offlineRefusal();
+    // Nothing is deleted offline: a deletion is decided by the server, online.
+    if (isOffline()) return { ok: false, code: 'offline', message: 'You are offline. Deleting needs the internet: nothing is deleted on this computer.' };
+    if (isApi() && typeof Sync !== 'undefined' && Sync.isTemp(id)) {
+      return { ok: false, code: 'pending', message: 'This record is still waiting to be sent to the server. Delete it once it has synced.' };
+    }
     if (!isApi() && isApiOnly(collection)) return apiOnlyRefusal();
     if (!isApi()) {
       const gone = deleteData(collection, id);
@@ -344,6 +369,11 @@ const Storage = (() => {
    */
   async function action(collection, id, name, body = {}, refresh = []) {
     if (isLocked()) return lockedRefusal();
+    if (offlineWrite() || (isApi() && syncReady() && Sync.isTemp(id))) {
+      const res = await Sync.action(collection, id, name, body);
+      if (isApi() && res.ok) Sync.run({ reason: 'write' });
+      return res;
+    }
     if (isOffline()) return offlineRefusal();
     if (!isApi()) {
       return { ok: false, code: 'no_api', message: 'This action needs the backend.' };
@@ -580,6 +610,9 @@ const Storage = (() => {
    * how a paid invoice goes on displaying its old balance.
    */
   async function refreshAll(...names) {
+    // Offline nothing can be re-read, and nothing needs to be: the change is
+    // waiting in the queue, and the server's answer is re-read once it is sent.
+    if (isOffline()) return [];
     const stale = [];
     for (const name of names) {
       const res = await reload(name);
@@ -713,6 +746,9 @@ const Storage = (() => {
       }
       grant = Array.isArray(who.permissions) ? { fullAccess: who.fullAccess === true, permissions: new Set(who.permissions) } : null;
       denied.clear();
+      serverCursor = Number.isInteger(who.syncCursor) ? who.syncCursor : null;
+      serverTime = who.serverTime || null;
+      clientAtServerTime = serverTime ? new Date().toISOString() : null;
 
       const [results, websiteBookings, settings] = await Promise.all([
         Promise.all(COLLECTIONS.map(fetchAll)),
@@ -749,6 +785,11 @@ const Storage = (() => {
       cachedSettings = settings.ok ? settings.data : null;
 
       mode = 'api';
+      // Changes this person made offline and has not sent yet: shown over the
+      // fresh data until the server accepts them (js/sync.js sends them next).
+      if (signedInAccount && Api.sameOrigin && typeof Sync !== 'undefined' && offlineReady()) {
+        try { bindSync(); await Sync.attachOnline(); } catch (e) { console.error('Unsynced offline changes could not be opened:', e && e.message); }
+      }
       return { mode: 'api', counts: Object.fromEntries(COLLECTIONS.map(c => [c, cache[c].length])) };
     })().then(result => { settled = true; outcome = result; return result; });
     return hydration;
@@ -789,11 +830,16 @@ const Storage = (() => {
     const session = ss.get(OFFLINE_SESSION_KEY);
     if (session && session.accountId && session.key && Date.now() - Number(session.at) < OFFLINE_SESSION_HOURS * 3600000) {
       const opened = await Offline.openWithSession(session.accountId, session.key);
-      if (opened.ok) { applyOffline(opened); return { mode: 'offline', reason, savedAt: offlineSavedAt }; }
+      if (opened.ok) {
+        applyOffline(opened);
+        await attachJournal(session.accountId, session.jkey);
+        return { mode: 'offline', reason, savedAt: offlineSavedAt };
+      }
     }
     ss.del(OFFLINE_SESSION_KEY);
     mode = 'locked';
-    return { mode: 'locked', offline: true, reason, hasCopies: await Offline.hasCopies() };
+    const store = await Offline.check();
+    return { mode: 'locked', offline: true, reason, hasCopies: store.ok && await Offline.hasCopies(), ...(store.ok ? {} : { storage: store }) };
   }
 
   /** Open the saved copy with a username / e-mail / Staff ID and password. */
@@ -802,12 +848,25 @@ const Storage = (() => {
     const opened = await Offline.unlock(identifier, password);
     if (!opened.ok) return opened;
     applyOffline(opened);
-    ss.set(OFFLINE_SESSION_KEY, { accountId: opened.user.accountId, key: opened.sessionKey, at: Date.now() });
-    return { ok: true, savedAt: offlineSavedAt };
+    ss.set(OFFLINE_SESSION_KEY, { accountId: opened.user.accountId, key: opened.sessionKey, jkey: opened.journalKey || null, at: Date.now() });
+    await attachJournal(opened.user.accountId, opened.journalKey);
+    return { ok: true, savedAt: offlineSavedAt, writable: syncReady() };
+  }
+
+  /** Open the person's journal of offline changes over the copy (writes are refused without it). */
+  async function attachJournal(accountId, key) {
+    if (typeof Sync === 'undefined' || !key) return false;
+    try { bindSync(); return await Sync.attachOffline(accountId, key); }
+    catch (e) { console.error('The offline journal could not be opened:', e && e.message); return false; }
   }
 
   /** Close the offline copy in this tab. */
-  function lockOffline() { ss.del(OFFLINE_SESSION_KEY); }
+  function lockOffline({ keepJournal = false } = {}) {
+    ss.del(OFFLINE_SESSION_KEY);
+    // Going back online keeps the journal's key for this tab, so what was made
+    // offline is sent at once; signing out forgets it.
+    if (typeof Sync !== 'undefined') { Sync.close(); if (!keepJournal) Sync.forgetKey(); }
+  }
 
   /**
    * Online: refresh this person's encrypted copy with what was just read
@@ -820,9 +879,14 @@ const Storage = (() => {
     const last = ss.get('taqwa_offline_saved_at');
     if (!force && last && last.accountId === signedInAccount.id && Date.now() - Number(last.at) < OFFLINE_SAVE_EVERY_MS) return false;
     try {
+      // Only what the server confirmed: a record made or edited offline lives
+      // in the journal (js/sync.js), and the copy keeps the server's version.
+      const confirmed = c => (cache[c] || []).map(r => (r && r._sync && typeof Sync !== 'undefined' ? Sync.baseFor(c, r) : r)).filter(Boolean);
       const saved = await Offline.saveSnapshot(signedInAccount.id, {
-        collections: Object.fromEntries(COLLECTIONS.map(c => [c, cache[c] || []])),
+        collections: Object.fromEntries(COLLECTIONS.map(c => [c, confirmed(c)])),
         settings: cachedSettings, permissions: [...grant.permissions], fullAccess: grant.fullAccess, denied: [...denied],
+        // The 14-day window runs from the server's time at this online authorization.
+        cursor: serverCursor, authorizedAt: serverTime, clientAt: clientAtServerTime,
       });
       if (saved) ss.set('taqwa_offline_saved_at', { accountId: signedInAccount.id, at: Date.now() });
       return saved;
@@ -833,9 +897,23 @@ const Storage = (() => {
   }
 
   /** After an online sign-in with a password: let this person open a copy here later. */
-  async function enrollOffline(password, typedIdentifier) {
+  async function enrollOffline(password, typedIdentifier, { oldPassword = null } = {}) {
     if (!offlineReady() || !signedInAccount || !password) return false;
-    try { return await Offline.enroll(signedInAccount, password, typedIdentifier); }
+    // A journal key this tab already holds survives a new key pair (a changed password).
+    let journalKey = null;
+    try { const s = JSON.parse(sessionStorage.getItem('taqwa_journal_session')); if (s && s.accountId === signedInAccount.id) journalKey = s.key; } catch (e) { /* none */ }
+    try {
+      const enrolled = await Offline.enroll(signedInAccount, password, typedIdentifier, { journalKey, oldPassword });
+      // M8: ask the browser to keep this computer's offline data (best effort; shown on Offline & Sync).
+      await Offline.ensurePersistent().catch(() => null);
+      // Changes made offline and not sent yet, which this tab could not open
+      // without the password: the password just typed opens them.
+      if (enrolled && typeof Sync !== 'undefined' && !Sync.isOpen()) {
+        const key = await Offline.journalKeyWithPassword(signedInAccount.id, password);
+        if (key && await Sync.open({ accountId: signedInAccount.id, key })) { Sync.rememberKey(signedInAccount.id, key); Sync.overlay(); }
+      }
+      return enrolled;
+    }
     catch (e) { console.error('Offline access could not be set up:', e && e.message); return false; }
   }
 
@@ -904,6 +982,7 @@ const Storage = (() => {
     signedInAccount = null;
     grant = null;
     ss.del(OFFLINE_SESSION_KEY);
+    if (typeof Sync !== 'undefined') { Sync.close(); Sync.forgetKey(); }
     denied.clear();
     mode = 'locked';
     hydration = null;
@@ -964,6 +1043,25 @@ const Storage = (() => {
     document.addEventListener('DOMContentLoaded', run, { once: true });
   }
 
+  /* What js/sync.js needs of this file's internals: the cache, the caller's
+     permissions, and the server cursor. Bound once, at load. */
+  function bindSync() {
+    if (typeof Sync === 'undefined' || Sync.bound) return;
+    Sync.bind({
+      collections: COLLECTIONS,
+      cachePut, cacheDrop,
+      cacheGet: (c, id) => (cache[c] || []).find(r => r.id === id) || null,
+      cacheAll: c => cache[c] || [],
+      can, isApi, isOffline,
+      get account() { return signedInAccount; },
+      get cursor() { return serverCursor; },
+      set cursor(v) { serverCursor = v; },
+      reload: c => reload(c),
+      saveCopy: () => saveOfflineCopy({ force: true }),
+    });
+  }
+  bindSync();
+
   return {
     COLLECTIONS,
     getData, saveData, getById, addData, updateData, deleteData,
@@ -979,6 +1077,11 @@ const Storage = (() => {
     can, isDenied, blockPage,
     isOffline, unlockOffline, lockOffline, saveOfflineCopy, enrollOffline, OFFLINE_MESSAGE,
     get offlineSavedAt() { return offlineSavedAt; },
+    /** The server rules every write here: online, or offline with changes kept for the server (not the browser-only demo). */
+    serverRules: () => isApi() || isOffline(),
+    /** Offline, and changes can be saved on this computer for later. */
+    offlineWritable: () => offlineWrite(),
+    get serverCursor() { return serverCursor; },
     isApi, isLocked
   };
 })();

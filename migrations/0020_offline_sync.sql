@@ -1,0 +1,209 @@
+-- ===========================================================================
+-- 0020 — Offline sync (Phases 2-4): devices, the sync journal, conflicts,
+--        invoice drafts, the offline stock-movement ledger and a change log.
+-- ---------------------------------------------------------------------------
+-- ADDITIVE ONLY. Every statement creates something new (IF NOT EXISTS / OR
+-- IGNORE): no table, column, row or index that exists is dropped, altered or
+-- deleted. The only writes to existing tables are:
+--   * three new rows in id_counters (devices, sync conflicts, invoice drafts);
+--   * two new permissions for the Admin role (ROL-0002): sync.view and
+--     sync.manage -- the owner's decision that authorized Admins resolve
+--     offline conflicts (Super Admin already holds every permission).
+--
+-- WHAT EACH TABLE IS FOR (see OFFLINE_SYSTEM.md)
+--   devices              one row per browser that has synced: its UUID, a short
+--                        server-assigned code used in temporary references
+--                        (OFF-<code>-CUS-0007), and whether it was revoked.
+--   device_accounts      which people have used which device, and when the
+--                        server last authorized them there (the 14-day rule).
+--   sync_ops             every offline operation a device pushed, keyed by the
+--                        operation's own UUID: the idempotency record. A
+--                        repeated push of the same UUID returns the stored
+--                        answer and never applies the operation twice.
+--   sync_conflicts       operations the server would not apply as they were
+--                        (insufficient stock, a rejected payment, an edit made
+--                        on a record someone else changed...). Kept, never
+--                        deleted; resolved by an authorized Admin.
+--   sync_conflict_events the append-only resolution history of each conflict.
+--   invoice_drafts       invoices prepared offline: a draft has NO invoice
+--                        number. Only an authorized online finalization creates
+--                        the real invoice (with its official number).
+--   offline_stock_movements  every parts-usage movement recorded offline:
+--                        applied through the job card's own stock rules, or
+--                        flagged for review. Append-only.
+--   change_log           a server-side sequence of what changed (upsert or
+--                        delete of a record, or 'refresh' of a collection a
+--                        write also moved -- a payment moves its invoice),
+--                        written by the router after each successful write
+--                        (src/lib/changes.js). Devices pull from it with a
+--                        cursor -- a sequence number, never a client clock --
+--                        and deletes arrive as tombstones.
+--
+--                        NOT triggers, deliberately: D1 counts rows a trigger
+--                        writes in a statement's meta.changes, and existing
+--                        write guards rely on that count being exactly the
+--                        rows the statement itself changed.
+--
+-- ROLLBACK (only if no device has synced through it; data in these tables
+-- would be lost): DROP TABLE change_log, sync_ops_locks,
+-- offline_stock_movements, invoice_drafts, sync_conflict_events,
+-- sync_conflicts, sync_ops, device_accounts, devices; DELETE the three
+-- id_counters rows and the two role_permissions rows. Existing tables are
+-- untouched by this migration, so nothing else needs undoing.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS devices (
+  id             TEXT PRIMARY KEY CHECK (length(id) = 36),   -- the browser's random UUID
+  code           TEXT NOT NULL UNIQUE CHECK (length(code) BETWEEN 1 AND 8 AND code NOT GLOB '*[^A-Z]*'),
+  label          TEXT NOT NULL DEFAULT '' CHECK (length(label) <= 80),
+  registered_by  TEXT NOT NULL,                               -- account id
+  registered_at  TEXT NOT NULL,
+  last_seen_at   TEXT,
+  last_seen_by   TEXT,
+  revoked_at     TEXT,
+  revoked_by     TEXT,
+  revoke_reason  TEXT NOT NULL DEFAULT '' CHECK (length(revoke_reason) <= 300)
+);
+
+CREATE TABLE IF NOT EXISTS device_accounts (
+  device_id      TEXT NOT NULL REFERENCES devices(id),
+  account_id     TEXT NOT NULL,
+  first_seen_at  TEXT NOT NULL,
+  authorized_at  TEXT NOT NULL,                               -- server time of the last online authorization
+  PRIMARY KEY (device_id, account_id)
+);
+
+CREATE TABLE IF NOT EXISTS sync_ops (
+  op_id            TEXT PRIMARY KEY CHECK (length(op_id) = 36),
+  device_id        TEXT NOT NULL,
+  account_id       TEXT NOT NULL,
+  kind             TEXT NOT NULL CHECK (kind IN ('create', 'update', 'status', 'payment', 'invoice_draft', 'parts_usage', 'stock_movement')),
+  collection       TEXT,
+  temp_id          TEXT,                                      -- the record's temporary reference, for a create
+  target_id        TEXT,                                      -- the record an update / status / usage is for
+  payload          TEXT NOT NULL,                             -- exactly what the device sent (JSON)
+  status           TEXT NOT NULL CHECK (status IN ('processing', 'applied', 'conflict', 'rejected', 'dismissed')),
+  result_id        TEXT,                                      -- the official server id, once applied
+  result           TEXT,                                      -- the stored answer (JSON), replayed on a repeat
+  local_created_at TEXT,
+  received_at      TEXT NOT NULL,
+  applied_at       TEXT,
+  updated_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_sync_ops_temp    ON sync_ops (device_id, temp_id);
+CREATE INDEX IF NOT EXISTS ix_sync_ops_account ON sync_ops (account_id, received_at);
+CREATE INDEX IF NOT EXISTS ix_sync_ops_status  ON sync_ops (status);
+
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+  id              TEXT PRIMARY KEY,                           -- CNF-0001
+  op_id           TEXT NOT NULL REFERENCES sync_ops(op_id),
+  type            TEXT NOT NULL CHECK (type IN ('payment', 'invoice', 'inventory', 'edit', 'validation', 'permission', 'dependency', 'duplicate', 'interrupted')),
+  severity        TEXT NOT NULL CHECK (severity IN ('financial', 'inventory', 'normal')),
+  collection      TEXT,
+  record_id       TEXT,
+  temp_ref        TEXT,
+  device_id       TEXT NOT NULL,
+  account_id      TEXT NOT NULL,
+  reason          TEXT NOT NULL,
+  details         TEXT NOT NULL DEFAULT '{}',                 -- local values, server values, the server's answer (JSON)
+  -- 'Resolving' is an administrator's atomic claim while a decision is applied
+  -- (two administrators can never apply the same conflict twice); a claim
+  -- older than two minutes may be taken over.
+  status          TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Resolving', 'Resolved')),
+  claimed_by      TEXT,
+  claimed_at      TEXT,
+  resolution      TEXT,
+  resolution_note TEXT,
+  resolved_by     TEXT,
+  resolved_at     TEXT,
+  result_id       TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_sync_conflicts_status ON sync_conflicts (status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sync_conflicts_open_op ON sync_conflicts (op_id) WHERE status IN ('Open', 'Resolving');
+CREATE INDEX IF NOT EXISTS ix_sync_conflicts_account ON sync_conflicts (account_id, status);
+
+CREATE TABLE IF NOT EXISTS sync_conflict_events (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  conflict_id  TEXT NOT NULL REFERENCES sync_conflicts(id),
+  at           TEXT NOT NULL,
+  account_id   TEXT,
+  action       TEXT NOT NULL,
+  note         TEXT NOT NULL DEFAULT '',
+  outcome      TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS ix_sync_conflict_events ON sync_conflict_events (conflict_id, id);
+
+CREATE TABLE IF NOT EXISTS invoice_drafts (
+  id              TEXT PRIMARY KEY,                           -- DRF-0001: never an invoice number
+  -- ON DELETE SET NULL: a draft never blocks deleting its job card or invoice
+  -- (existing delete rules stay exactly as they were); the draft is kept, as
+  -- history, with the link cleared.
+  job_card_id     TEXT REFERENCES job_cards(id) ON DELETE SET NULL,
+  date            TEXT,
+  notes           TEXT NOT NULL DEFAULT '' CHECK (length(notes) <= 1000),
+  status          TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Finalized', 'Discarded')),
+  local_total     REAL,                                       -- the total the device saw when it drafted
+  local_snapshot  TEXT NOT NULL DEFAULT '{}',                 -- the lines it saw (JSON), for pricing review
+  invoice_id      TEXT REFERENCES invoices(id) ON DELETE SET NULL,  -- the real invoice, once finalized
+  temp_ref        TEXT,
+  op_id           TEXT UNIQUE,
+  device_id       TEXT,
+  created_by      TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  finalized_by    TEXT,
+  finalized_at    TEXT,
+  discarded_by    TEXT,
+  discarded_at    TEXT,
+  discard_reason  TEXT NOT NULL DEFAULT '',
+  updated_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_invoice_drafts_status ON invoice_drafts (status, created_at);
+CREATE INDEX IF NOT EXISTS ix_invoice_drafts_job ON invoice_drafts (job_card_id);
+
+CREATE TABLE IF NOT EXISTS offline_stock_movements (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  op_id            TEXT NOT NULL UNIQUE,
+  part_id          TEXT NOT NULL,
+  job_card_id      TEXT,
+  type             TEXT NOT NULL CHECK (type IN ('job-card-use', 'return')),
+  quantity         REAL NOT NULL CHECK (quantity > 0),
+  account_id       TEXT NOT NULL,
+  device_id        TEXT NOT NULL,
+  local_created_at TEXT,
+  received_at      TEXT NOT NULL,
+  status           TEXT NOT NULL CHECK (status IN ('Applied', 'Review', 'Dismissed')),
+  applied_at       TEXT,
+  conflict_id      TEXT,
+  updated_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_osm_status ON offline_stock_movements (status);
+CREATE INDEX IF NOT EXISTS ix_osm_part ON offline_stock_movements (part_id);
+
+-- A short advisory lock: two devices' parts usage on the same job card is
+-- applied one after the other, so neither read-modify-write loses the other.
+CREATE TABLE IF NOT EXISTS sync_ops_locks (
+  key         TEXT PRIMARY KEY,
+  holder      TEXT NOT NULL,
+  expires_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS change_log (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  collection  TEXT NOT NULL,
+  record_id   TEXT NOT NULL,
+  op          TEXT NOT NULL CHECK (op IN ('upsert', 'delete', 'refresh')),
+  changed_at  TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO id_counters (collection, prefix, last_value) VALUES
+  ('devices', 'DEV', 0),
+  ('syncConflicts', 'CNF', 0),
+  ('invoiceDrafts', 'DRF', 0);
+
+-- Owner decision: authorized Admins review and resolve offline conflicts.
+-- Only added to the built-in Admin role (ROL-0002), and only while it is still
+-- named 'Admin' -- a role that was renamed or repurposed gains nothing.
+INSERT OR IGNORE INTO role_permissions (role_id, permission)
+  SELECT 'ROL-0002', p FROM (SELECT 'sync.view' AS p UNION ALL SELECT 'sync.manage')
+   WHERE EXISTS (SELECT 1 FROM roles WHERE id = 'ROL-0002' AND name = 'Admin');

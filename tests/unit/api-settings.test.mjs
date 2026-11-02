@@ -415,7 +415,7 @@ console.log('\n-- 14. Route registration --');
   const b = await res.json();
   const routes = b.data.routes;
 
-  check('health advertises 151 routes', routes.length, 151);
+  check('health advertises 165 routes', routes.length, 165);
   ok_('advertises GET /api/settings', routes.includes('GET /api/settings'));
   ok_('does NOT advertise a settings detail route', !routes.includes('GET /api/settings/:id'));
   // Was "every route is a GET" through Phase B. C-2 made that false by
@@ -424,8 +424,8 @@ console.log('\n-- 14. Route registration --');
   {
     const byMethod = {};
     routes.forEach((r) => { const m = r.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    check('61 GET, 55 POST, 23 PUT, 12 DELETE', byMethod,
-      { GET: 61, POST: 55, PUT: 23, DELETE: 12 });
+    check('69 GET, 60 POST, 23 PUT, 13 DELETE (0020 added offline sync)', byMethod,
+      { GET: 69, POST: 60, PUT: 23, DELETE: 13 });
     ok_('no other method is advertised',
       routes.every((r) => ['GET', 'POST', 'PUT', 'DELETE'].includes(r.split(' ')[0])));
     check('settings offers a read and a write, and nothing else',
@@ -469,7 +469,7 @@ console.log('\n-- 15. The existing ten collections are untouched --');
   // order. C-2 interleaved write routes between them but removed none.
   {
     const gets = routes.filter((r) => r.startsWith('GET '));
-    check('all 61 GET routes survive, in order', gets, [
+    check('all 69 GET routes survive, in order', gets, [
       'GET /api/health',
       ...['customers', 'vehicles', 'services', 'mechanics', 'parts', 'appointments',
         'job-cards', 'invoices', 'payments', 'invoice-adjustments', 'expenses', 'inventory-transactions',
@@ -480,6 +480,9 @@ console.log('\n-- 15. The existing ten collections are untouched --');
       'GET /api/whatsapp/conversations', 'GET /api/whatsapp/conversations/:id', 'GET /api/whatsapp/conversations/:id/messages',
       'GET /api/webhooks/whatsapp',
       'GET /api/notifications', 'GET /api/notifications/unread-count',
+      // 0020: offline sync.
+      'GET /api/devices', 'GET /api/sync/status', 'GET /api/sync/pull', 'GET /api/sync/history', 'GET /api/sync/conflicts', 'GET /api/sync/conflicts/:id',
+      'GET /api/invoice-drafts', 'GET /api/invoice-drafts/:id',
       'GET /api/settings',
       'GET /api/session',
     ]);

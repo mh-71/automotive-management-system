@@ -188,7 +188,7 @@
     // and the overpayment rule is the INSERT's own WHERE rather than a check
     // that could be raced. So this sends the payment and nothing else; the
     // invoice comes back re-read, not recalculated here.
-    if (Storage.isApi()) {
+    if (Storage.serverRules()) {
       return (async () => {
         // `status` is deliberately absent: the API refuses it by name, because
         // a payment is born Active and leaves that state only through the void
@@ -205,6 +205,9 @@
           notes: (notes || '').trim()
         });
         if (!res.ok) return { ok: false, reason: res.message, response: res };
+        // Offline: PENDING. Kept apart from the confirmed payments -- no
+        // invoice balance or advance moves until the server accepts it.
+        if (res.pending) return { ok: true, pending: true, payment: res.record };
         const stale = res.record.invoiceId ? await Storage.refreshAll('invoices') : [];
         return { ok: true, payment: res.record, ...(stale.length ? { stale } : {}) };
       })();
@@ -693,6 +696,10 @@
 
       Modal.close();
       refresh();
+      if (result.pending) {
+        toast(`Payment ${result.payment.id} saved offline as PENDING. It is not confirmed, and no balance changes, until the server accepts it.`, 'info');
+        return;
+      }
       if (result.stale && result.stale.length) Utils.wrote(result);
       else toast(`Payment ${result.payment.id} recorded for ${custName(result.payment.customerId)}.`);
       openDetailModal(result.payment.id);
