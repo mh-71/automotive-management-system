@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conflict Center — Taqwa Automobile Service Center</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <script>
+    try {
+      var t = JSON.parse(localStorage.getItem('taqwa_theme'));
+      if (t) document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <link rel="stylesheet" href="../css/dashboard.css">
+  <link rel="stylesheet" href="../css/responsive.css">
+  <link rel="stylesheet" href="../css/offline-sync.css">
+  <!-- Hold the first paint until app.js has drawn the shell (marker at the end
+       of <body>), so a page change never shows a frame without the sidebar
+       and header. The browser keeps the previous page on screen meanwhile.
+       Chromium releases the hold as soon as app.js inserts the shell (it
+       contains images) and then logs "Did not find element expected to be
+       parsed" -- a harmless warning; the marker must stay AFTER the scripts,
+       because placed before app.js a frame can slip out before the shell. -->
+  <link rel="expect" href="#shell-drawn" blocking="render">
+  <!-- The sidebar logo and the header's avatar are drawn by app.js; fetch them
+       alongside the scripts so they are ready in that first frame instead of
+       popping in after it. -->
+  <link rel="preload" href="../assets/logo/logo-white.png" as="image">
+  <link rel="preload" href="../assets/avatar/admin.webp" as="image">
+</head>
+<body data-page="sync-conflicts" data-root="../">
+
+  <div id="page-content">
+
+    <!-- Conflict Center (Phases 2-4). Filled in by js/sync-conflicts.js from the server:
+         GET /api/sync/conflicts and /api/invoice-drafts. Resolving is checked by the
+         server (sync.manage; invoices.create for drafts) -- this page only shows what
+         the signed-in role may do. -->
+
+    <div class="ofs-head">
+      <h2 class="ofs-title">Conflict Center</h2>
+      <p class="page-subtitle">Changes made offline that the server would not apply as they were, and invoice drafts waiting to be finalized.</p>
+    </div>
+
+    <p class="ofs-warn" id="scOffline" hidden>The Conflict Center needs the internet: conflicts are decided on the server.</p>
+
+    <section class="card ofs-card" aria-labelledby="scTitle">
+      <div class="card__head ofs-card__head">
+        <h2 id="scTitle">Sync conflicts</h2>
+        <div class="ofs-actions" role="tablist" aria-label="Which conflicts">
+          <button type="button" class="btn btn--primary btn--sm" data-status="Open" role="tab" aria-selected="true">Open</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-status="Resolved" role="tab" aria-selected="false">Resolved</button>
+        </div>
+      </div>
+      <div class="card__body">
+        <p class="ofs-hint" id="scHint"></p>
+        <div class="table-wrap">
+          <table class="table ofs-table">
+            <thead><tr><th scope="col">Conflict</th><th scope="col">Type</th><th scope="col">Record</th><th scope="col">Device / person</th><th scope="col">Reason</th><th scope="col">Raised</th></tr></thead>
+            <tbody id="scList"><tr><td colspan="6" class="ofs-empty">Loading&hellip;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="card ofs-card" id="scDetail" hidden aria-labelledby="scDetailTitle">
+      <div class="card__head ofs-card__head"><h2 id="scDetailTitle">Conflict</h2></div>
+      <div class="card__body" id="scDetailBody"></div>
+    </section>
+
+    <section class="card ofs-card" aria-labelledby="scDraftsTitle" id="scDraftsCard">
+      <div class="card__head ofs-card__head"><h2 id="scDraftsTitle">Invoice drafts made offline</h2></div>
+      <div class="card__body">
+        <p class="ofs-hint">A draft has no invoice number. Finalizing it creates the real invoice on the server, from the job card's current pricing; if that pricing changed since the draft was made, you are asked to review it first.</p>
+        <div class="table-wrap">
+          <table class="table ofs-table">
+            <thead><tr><th scope="col">Draft</th><th scope="col">Job card</th><th scope="col">Total when drafted</th><th scope="col">Made</th><th scope="col">Status</th><th scope="col"><span class="ofs-sr">Actions</span></th></tr></thead>
+            <tbody id="scDrafts"><tr><td colspan="6" class="ofs-empty">Loading&hellip;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="../js/api.js"></script>
+  <script src="../js/seed-data.js"></script>
+  <script src="../js/version.js"></script>
+  <script src="../js/offline.js"></script>
+  <script src="../js/sync.js"></script>
+  <script src="../js/storage.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/app.js"></script>
+  <script src="../js/sync-conflicts.js"></script>
+  <span id="shell-drawn" hidden></span>
+</body>
+</html>

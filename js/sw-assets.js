@@ -91,6 +91,8 @@ self.TAQWA_ASSETS = [
   "/js/staff-performance.js",
   "/js/staff-roles.js",
   "/js/storage.js",
+  "/js/sync-conflicts.js",
+  "/js/sync.js",
   "/js/utils.js",
   "/js/vehicles.js",
   "/js/version.js",
@@ -137,6 +139,7 @@ self.TAQWA_ASSETS = [
   "/pages/staff-management.html",
   "/pages/staff-performance.html",
   "/pages/staff-roles.html",
+  "/pages/sync-conflicts.html",
   "/pages/vehicles.html",
   "/pages/workshop-tools.html"
 ];

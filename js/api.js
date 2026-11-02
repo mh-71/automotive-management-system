@@ -315,7 +315,10 @@ const Api = (() => {
     return { ok: true, authenticated: data.authenticated === true, passphrase: data.passphrase === true, accounts: data.accounts === true, account,
       // Whether the shared workshop passphrase may still sign in (0019); true when the server does not say.
       sharedPassphrase: data.sharedPassphrase !== false,
-      fullAccess: data.fullAccess === true, permissions };
+      fullAccess: data.fullAccess === true, permissions,
+      // Offline sync (0020), for a personal account: the server's clock and change-log position.
+      serverTime: typeof data.serverTime === 'string' ? data.serverTime : null,
+      syncCursor: Number.isInteger(data.syncCursor) ? data.syncCursor : null };
   }
 
   /**

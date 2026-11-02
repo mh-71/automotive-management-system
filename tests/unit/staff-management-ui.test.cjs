@@ -154,7 +154,7 @@ for (const page of ['mechanics', 'crm-reports', 'settings']) {
 console.log('\n-- 3. the pages --');
 const head = s => s.slice(0, s.indexOf('</head>'));
 const settingsHead = head(read('pages/settings.html'));
-const SCRIPTS = ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/staff-ui.js'];
+const SCRIPTS = ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/sync.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/staff-ui.js'];
 const pages = {};
 // Each real page: its stylesheet and the scripts it loads after the shared shell.
 const REAL = {

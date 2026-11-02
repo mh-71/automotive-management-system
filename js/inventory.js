@@ -468,7 +468,8 @@
       if (!res.ok) { toast(res.error, 'error'); return; }
       Modal.close();
       refresh();
-      if (res.stale && res.stale.length) Utils.wrote(res);
+      if (res.pending) toast(`Saved offline as ${res.transaction.id}. Stock changes when the server accepts it.`, 'info');
+      else if (res.stale && res.stale.length) Utils.wrote(res);
       else toast(`Stock received. New stock: ${res.newStock}.`);
     }));
   }
@@ -534,7 +535,8 @@
       if (!res.ok) { toast(res.error, 'error'); return; }   // "Insufficient stock…" surfaces here
       Modal.close();
       refresh();
-      if (res.stale && res.stale.length) Utils.wrote(res);
+      if (res.pending) toast(`Saved offline as ${res.transaction.id}. Stock changes when the server accepts it.`, 'info');
+      else if (res.stale && res.stale.length) Utils.wrote(res);
       else toast(`Adjustment applied. New stock: ${res.newStock}.`);
     }));
   }

@@ -406,6 +406,10 @@ console.log('\n-- 11. Routing --');
     'POST /api/forms/submit',
     'GET /api/notifications', 'GET /api/notifications/unread-count', 'POST /api/notifications/read-all',
     'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread',
+    // 0020: offline sync -- devices, push / pull, conflicts, invoice drafts.
+    'POST /api/devices/register', 'GET /api/devices', 'DELETE /api/devices/:id', 'GET /api/sync/status', 'POST /api/sync/push',
+    'GET /api/sync/pull', 'GET /api/sync/history', 'GET /api/sync/conflicts', 'GET /api/sync/conflicts/:id', 'POST /api/sync/conflicts/:id/resolve',
+    'GET /api/invoice-drafts', 'GET /api/invoice-drafts/:id', 'POST /api/invoice-drafts/:id/finalize', 'POST /api/invoice-drafts/:id/discard',
     // Settings is a singleton: a read and a write, and no /:id — there is
     // no create or delete for a row that is permanently id 1.
     'POST /api/session/password', 'PUT /api/session/passphrase', 'GET /api/settings', 'PUT /api/settings',
@@ -416,7 +420,7 @@ console.log('\n-- 11. Routing --');
   const res = await call('/api/nope', { DB: stubDB({ rows: [] }) });
   const body = await res.json();
   check('unknown collection -> 404', res.status, 404);
-  check('404 advertises every route', body.error.available.length, 151);
+  check('404 advertises every route', body.error.available.length, 165);
 }
 
 console.log(`\nGET /api/services unit: ${pass} passed, ${fail} failed`);

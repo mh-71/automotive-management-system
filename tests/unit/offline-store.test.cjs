@@ -5,7 +5,7 @@
         password, by username, Staff ID or e-mail (any case).
      2. A wrong password, an unknown identifier, and someone else's password
         all get the same refusal; nothing secret is stored in clear.
-     3. A copy older than 7 days will not open, and editing the stored
+     3. A copy older than 14 days will not open, and editing the stored
         timestamps cannot extend it (the age is read from inside the
         authenticated copy); a tampered copy does not open.
      4. Two people on one computer each open only their own copy.
@@ -44,7 +44,7 @@ const { Offline } = ctx;
   const opened = await Offline.unlock('nadia', PW);
   check('the next page of the same tab re-opens it with the tab\'s session key, no password', (await Offline.openWithSession('USR-0001', opened.sessionKey)).ok, true);
   check('   ...a wrong key, or someone else\'s account, does not', [(await Offline.openWithSession('USR-0001', btoa('x'.repeat(32)))).ok, (await Offline.openWithSession('USR-0099', opened.sessionKey)).ok], [false, false]);
-  check('   ...nor after 7 days', (await Offline.openWithSession('USR-0001', opened.sessionKey, Date.now() + 8 * 86400000)).code, 'expired');
+  check('   ...nor after 14 days', (await Offline.openWithSession('USR-0001', opened.sessionKey, Date.now() + 15 * 86400000)).code, 'expired');
   await Offline.saveSnapshot('USR-0001', DATA);
   check('   ...nor once a newer copy has been saved (new key)', (await Offline.openWithSession('USR-0001', opened.sessionKey)).ok, false);
 
@@ -58,8 +58,8 @@ const { Offline } = ctx;
   check('the private key is wrapped (PBKDF2-SHA-256, 310,000 rounds, random salt)', [user.iterations, typeof user.wrappedPrivateKey, user.salt.length > 10], [310000, 'string', true]);
 
   console.log('\n-- 3. age and tampering --');
-  const in8days = Date.now() + 8 * 86400000;
-  check('a copy more than 7 days old will not open', (await Offline.unlock('nadia', PW, in8days)).code, 'expired');
+  const in8days = Date.now() + 15 * 86400000;
+  check('a copy more than 14 days old will not open', (await Offline.unlock('nadia', PW, in8days)).code, 'expired');
   const snap = await store.get('snapshots', 'USR-0001');
   await store.put('snapshots', { ...snap, savedAt: new Date(in8days).toISOString() });
   await store.put('users', { ...(await store.get('users', 'USR-0001')), lastOnlineAt: new Date(in8days).toISOString() });

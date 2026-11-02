@@ -615,3 +615,8 @@ a.nav__sub:hover { background: rgba(255, 255, 255, .06); color: #fff; text-decor
 .sidebar__foot-link { display: block; flex-basis: 100%; margin-top: 4px; font-size: .7rem; color: inherit; opacity: .75; text-decoration: none; }
 .sidebar__foot-link:hover, .sidebar__foot-link:focus-visible { opacity: 1; text-decoration: underline; }
 .login__badge { display: inline-block; margin-bottom: 8px; }
+
+/* Offline changes kept apart from confirmed records (js/app.js showPendingPanel). */
+.pending-panel { margin-bottom: 16px; border-left: 4px solid var(--warning, #d97706); }
+.pending-panel .card__head h2 { font-size: 1rem; margin: 0; }
+.offline-bar__count { font-weight: 600; }
