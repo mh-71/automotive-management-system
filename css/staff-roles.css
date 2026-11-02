@@ -26,8 +26,51 @@
 }
 [data-page="staff-roles"] .rop-alert[hidden] { display: none; }
 
+/* ---------- header, toolbars ---------- */
+[data-page="staff-roles"] .rop-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+[data-page="staff-roles"] .rop-head .btn { display: inline-flex; align-items: center; gap: 6px; }
+[data-page="staff-roles"] .rop-head .btn[hidden] { display: none; }
+[data-page="staff-roles"] .rop-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 14px; }
+[data-page="staff-roles"] .rop-search { position: relative; flex: 1 1 260px; max-width: 420px; }
+[data-page="staff-roles"] .rop-search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+[data-page="staff-roles"] .rop-search .input { width: 100%; padding-left: 36px; }
+[data-page="staff-roles"] .rop-toolbar > .select { flex: 0 1 200px; min-width: 0; }
+
+/* ---------- the role list and detail ---------- */
+[data-page="staff-roles"] .rop-tag { font-size: .62rem; padding: 1px 6px; vertical-align: middle; }
+[data-page="staff-roles"] .rop-empty { margin: 4px 0; font-size: .84rem; }
+[data-page="staff-roles"] .rop-role-title { min-width: 0; }
+[data-page="staff-roles"] .rop-role-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+[data-page="staff-roles"] .rop-role-actions:empty { display: none; }
+[data-page="staff-roles"] .rop-role-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+[data-page="staff-roles"] .rop-role-actions .btn[disabled] { opacity: .55; cursor: not-allowed; }
+[data-page="staff-roles"] .rop-na { color: var(--text-3); font-weight: 700; }
+[data-page="staff-roles"] .rop-holders { margin-top: 16px; }
+[data-page="staff-roles"] .rop-holders:empty { display: none; }
+[data-page="staff-roles"] .rop-holders__title { margin: 0 0 6px; font-size: .82rem; font-weight: 700; color: var(--text); }
+[data-page="staff-roles"] .rop-holders__list { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: .84rem; }
+
+/* ---------- user role assignment ---------- */
+[data-page="staff-roles"] .rop-assign { margin-top: 18px; }
+[data-page="staff-roles"] .rop-assign[hidden] { display: none; }
+[data-page="staff-roles"] .rop-assign__hint { margin: 0 0 12px; font-size: .84rem; }
+[data-page="staff-roles"] .rop-users th[scope="row"] { font-weight: 600; text-align: left; }
+[data-page="staff-roles"] .rop-sub { display: block; font-size: .74rem; font-weight: 400; }
+[data-page="staff-roles"] .rop-role-select { min-width: 170px; }
+
+/* ---------- the role dialog ---------- */
+.rop-hint { margin: 12px 0 8px; font-size: .82rem; color: var(--text-2); }
+.rop-editor { max-height: 52vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.rop-editor .rop-matrix th, .rop-editor .rop-matrix td { padding: 6px 8px; text-align: center; }
+.rop-editor .rop-matrix th[scope="row"] { text-align: left; white-space: nowrap; font-size: .82rem; }
+.rop-editor thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.rop-editor .rop-na { color: var(--text-3); }
+.rop-check { display: inline-grid; place-items: center; width: 28px; height: 28px; cursor: pointer; }
+.rop-check input { width: 17px; height: 17px; accent-color: var(--amber); cursor: pointer; }
+.rop-check input:disabled { cursor: not-allowed; opacity: .45; }
+.rop-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
 /* ---------- the role header and matrix ---------- */
-[data-page="staff-roles"] #ropEdit[aria-disabled="true"] { opacity: .75; cursor: not-allowed; }
 [data-page="staff-roles"] .rop-matrix thead th:not(:first-child),
 [data-page="staff-roles"] .rop-matrix .stf-perm { width: auto; }
 [data-page="staff-roles"] .rop-matrix thead th:nth-child(n+6) { text-align: left; }
@@ -69,11 +112,19 @@
     content: attr(data-label); display: block; margin-bottom: 4px;
     font-size: .68rem; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--text-3);
   }
-  [data-page="staff-roles"] .rop-matrix td.rop-actions,
-  [data-page="staff-roles"] .rop-matrix td.rop-who { grid-column: 1 / -1; }
-  [data-page="staff-roles"] .rop-who .badge { white-space: nowrap; }
+  [data-page="staff-roles"] .rop-matrix td.rop-na-cell { display: none; }
+  [data-page="staff-roles"] .rop-users thead { display: none; }
+  [data-page="staff-roles"] .rop-users tbody tr:not(.rop-state-row):not(.rop-skel-row) {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 12px 4px; border-bottom: 1px solid var(--line);
+  }
+  [data-page="staff-roles"] .rop-users tbody tr > * { display: block; padding: 0; border: 0; }
+  [data-page="staff-roles"] .rop-users td[data-label="Role"] { grid-column: 1 / -1; }
+  [data-page="staff-roles"] .rop-users .rop-role-select { width: 100%; }
   [data-page="staff-roles"] .rop-skel-row td:nth-child(n+4) { display: none; }
 }
 @media (max-width: 640px) {
   [data-page="staff-roles"] .rop-state { flex-direction: column; gap: 10px; }
+  [data-page="staff-roles"] .rop-search { max-width: none; }
+  [data-page="staff-roles"] .rop-toolbar > .select { flex: 1 1 100%; }
+  [data-page="staff-roles"] .rop-role-actions { width: 100%; }
 }

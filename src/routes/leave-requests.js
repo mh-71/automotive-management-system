@@ -40,6 +40,7 @@ import {
 } from '../lib/http.js';
 import { readJsonBody, readDate, nowIso, todayInDhaka, allocateId, constraintFailure } from '../lib/write.js';
 import { principalOf } from '../lib/auth.js';
+import { can } from '../lib/permissions.js';
 
 export const LEAVE_TYPES = ['Casual', 'Sick', 'Annual', 'Unpaid'];
 export const LEAVE_STATUSES = ['Pending', 'Approved', 'Rejected'];
@@ -57,12 +58,8 @@ const SERVER_KEYS = ['id', 'status', 'decidedAt', 'decidedBy', 'decisionNote', '
 
 /* ---------- authorization ---------- */
 
-/** May this caller decide a request? Only an administrator (as for /api/accounts). */
-function isAdmin(who) {
-  if (!who) return false;
-  if (who.kind === 'token' || who.kind === 'passphrase') return true;
-  return who.kind === 'account' && who.role === 'Administrator';
-}
+/** May this caller decide a request? A role with Leave: approve (0018); the router checks it first. */
+const isAdmin = (who) => can(who, 'leave.approve');
 
 /** Who made a decision, as the request keeps it. */
 function deciderName(who) {
@@ -70,7 +67,7 @@ function deciderName(who) {
   return who.kind === 'passphrase' ? 'Workshop passphrase' : 'API token';
 }
 
-const forbidden = () => fail('forbidden', 'Only an administrator can approve or reject leave requests.', 403);
+const forbidden = () => fail('forbidden', 'Your role cannot approve or reject leave requests.', 403);
 
 /* ---------- reading ---------- */
 

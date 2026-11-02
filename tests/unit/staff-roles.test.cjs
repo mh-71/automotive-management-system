@@ -1,193 +1,230 @@
-/* staff-roles — Staff Management › Roles & Permissions, read from the Worker.
+/* staff-roles — Staff Management › Roles & Permissions (0018), connected.
 
-   Drives the REAL js/staff-roles.js (with the real api.js, storage.js,
-   utils.js and app.js) through the shared harness, against a fake API whose
-   GET /api/health lists the REAL route registry of src/index.js.
+   Drives the REAL js/staff-roles.js (with the real api.js, storage.js and
+   utils.js) through the shared harness, against a fake API answering
+   /api/session, /api/roles and /api/accounts the way the Worker does.
 
-     1. Helpers: the areas and actions built from the route list (nothing
-        invented, nothing hidden, public routes left out, an unknown route
-        still shown), the one role (Administrator), the account counts, and
-        rows that are escaped and mark the one area only administrators use.
-     2. The page in 'api' mode: the role list and its account count, the
-        matrix of every real area, who is signed in, nothing written.
-     3. Feedback: Edit permissions only explains why it is unavailable; a
-        refused (403) account read still shows the permissions and says why
-        the counts are missing; a failed health read (Try again), an ended
-        session (401) and no backend each say so, with no matrix. */
+     1. Helpers: role and account filters; the read-only matrix (allowed /
+        not allowed / no such action, escaped); the editor matrix, where a
+        permission the editor does not hold cannot be ticked; plain errors.
+     2. Full access: the roles load (escaped), the first is shown with its
+        matrix and holders; a custom role offers Edit / Switch off / Delete /
+        Copy, Super Admin none of the changes; Switch off and Delete are
+        disabled while accounts hold the role; the assignment table lists the
+        accounts, never lets you change your own role, and Save asks first and
+        then sends { roleId } only.
+     3. Creating and editing a role sends name, description and the ticked
+        permissions (and expectedUpdatedAt when editing); a refusal is shown.
+     4. A role that may only view roles sees no New role, no change buttons
+        and no assignment table.
+     5. Failures: 403, 500 (Try again), an ended session and no backend each
+        say so; nothing is written by loading. */
 const vm = require('vm');
 const { boot, check, ok, summary } = require('../lib/harness.cjs');
 const { fakeApi } = require('../lib/fake-api.cjs');
 
 const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
 
-/** The Worker's real route list, as its 404 advertises it (no database needed). */
-async function realRoutes() {
-  const worker = (await import('../../src/index.js')).default;
-  const db = { prepare() { const s = { bind() { return s; }, first: async () => null, all: async () => ({ results: [] }), run: async () => ({}) }; return s; } };
-  const r = await worker.fetch(new Request('http://x/api/__nope__'), { DB: db, API_TOKEN: 't'.repeat(32) }, { waitUntil() {} });
-  return (await r.json()).error.available;
-}
+const CATALOG = [
+  { key: 'customers', label: 'Customers', actions: { view: 'See customers', create: 'Add customers', edit: 'Edit customers', delete: 'Delete customers' } },
+  { key: 'invoices', label: 'Invoices', actions: { view: 'See invoices', create: 'Create invoices', manage: 'Void invoices' } },
+  { key: 'roles', label: 'Roles & Permissions', actions: { view: 'See roles', edit: 'Edit roles', manage: 'Assign roles' } },
+];
+const ALL = CATALOG.flatMap(m => Object.keys(m.actions).map(a => `${m.key}.${a}`));
+const role = (id, name, extra = {}) => ({ id, name, description: '', system: false, fullAccess: false, status: 'Active', permissions: [], accounts: 0, activeAccounts: 0,
+  createdAt: '2026-11-01T00:00:00.000Z', updatedAt: `2026-11-01T00:00:0${id.slice(-1)}.000Z`, updatedBy: '', canManage: true, ...extra });
+const ROLES = [
+  role('ROL-0001', 'Super Admin', { system: true, fullAccess: true, permissions: ALL, accounts: 1, activeAccounts: 1, canManage: true }),
+  role('ROL-0004', 'Accountant', { permissions: ['customers.view', 'invoices.view', 'invoices.create'], accounts: 1, activeAccounts: 1 }),
+  role('ROL-0009', '<b>Night shift</b>', { description: 'Evening <i>desk</i>', permissions: ['customers.view'] }),
+  role('ROL-0010', 'Old role', { status: 'Inactive' }),
+];
+const acct = (id, name, roleId, extra = {}) => ({ id, staffId: 'STF-0001', staffName: name, username: name.toLowerCase().split(' ')[0], roleId,
+  role: (ROLES.find(r => r.id === roleId) || {}).name || '', status: 'Active', self: false, ...extra });
+const ACCOUNTS = [acct('USR-0001', 'Nadia Akter', 'ROL-0001'), acct('USR-0002', 'Rafi Test', 'ROL-0004')];
 
-const acct = (id, role, status) => ({ id, staffId: 'MEC-0001', staffName: 'Someone', username: `u${id.slice(-1)}`, role, status, self: false });
-const ACCOUNTS = [acct('USR-0001', 'Administrator', 'Active'), acct('USR-0002', 'Administrator', 'Inactive'), acct('USR-0003', 'Administrator', 'Active')];
-
-function api({ routes, accounts = ACCOUNTS, failAccounts = null, failHealth = false, account = null } = {}) {
+function api({ roles = ROLES, accounts = ACCOUNTS, session = { fullAccess: true, permissions: ALL }, account = { id: 'USR-0001', username: 'nadia', role: 'Super Admin', roleId: 'ROL-0001' },
+  failRoles = null, failWrite = null } = {}) {
   const base = fakeApi({ rows: { mechanics: [] } });
   const calls = base.calls;
   const res = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body });
-  let healthReads = 0;
   const fn = async (url, init = {}) => {
     const path = String(url).replace(/^https?:\/\/[^/]+\/api/, '');
     const method = init.method || 'GET';
+    const body = init.body ? JSON.parse(init.body) : undefined;
     if (path === '/session' && method === 'GET') {
-      return res(200, { data: { authenticated: true, passphrase: true, accounts: true, ...(account ? { account } : {}) } });
+      return res(200, { data: { authenticated: true, passphrase: true, accounts: true, ...(account ? { account } : {}), ...session } });
     }
-    if (path === '/health') {
-      calls.push({ method, path });
-      healthReads++;
-      // The first read is the app's start-up probe; the page's own read comes after it.
-      if (failHealth && healthReads > 1) return res(503, { error: { code: 'database_error', message: 'D1 did not answer.' } });
-      return res(200, { data: { service: 'taqwa-api', routes } });
+    if (path.startsWith('/roles')) {
+      calls.push({ method, path, body });
+      if (failRoles) return res(failRoles.status, { error: failRoles.error });
+      if (method === 'GET') return res(200, { data: roles, count: roles.length, total: roles.length, catalog: CATALOG });
+      if (failWrite) return res(failWrite.status, { error: failWrite.error });
+      if (method === 'POST') return res(201, { data: role('ROL-0011', body.name, { permissions: body.permissions }) });
+      const r = roles.find(x => path.includes(x.id));
+      if (method === 'PUT') return res(200, { data: { ...r, ...body } });
+      if (method === 'DELETE') return res(200, { data: { id: r.id, deleted: true } });
     }
-    if (!path.startsWith('/accounts')) return base(url, init);
-    calls.push({ method, path });
-    if (failAccounts) return res(failAccounts.status, { error: failAccounts.error });
-    return res(200, { data: accounts, count: accounts.length, total: accounts.length });
+    if (path.startsWith('/accounts')) {
+      calls.push({ method, path, body });
+      if (method === 'GET') return res(200, { data: accounts, count: accounts.length, total: accounts.length });
+      const a = accounts.find(x => path.includes(x.id));
+      return res(200, { data: { ...a, roleId: body.roleId } });
+    }
+    return base(url, init);
   };
   fn.calls = calls;
   return fn;
 }
 
 function page({ origin = 'http://localhost:8787', fetch } = {}) {
-  const h = boot({ origin, fetch, modules: ['js/staff-roles.js'] });
+  const dialogs = [];
+  const h = boot({
+    origin, fetch, modules: ['js/staff-roles.js'],
+    beforeModules(doc) { doc.body.dataset.page = 'staff-roles'; },
+  });
   vm.runInContext('globalThis.StaffRoles = StaffRoles;', h.ctx);
+  // Capture dialogs instead of drawing them (the harness has no real DOM).
+  h.ctx.Utils.Modal.confirm = (opts) => dialogs.push({ kind: 'confirm', ...opts });
+  h.ctx.Utils.Modal.open = (opts) => { dialogs.push({ kind: 'open', ...opts }); return null; };
+  h.ctx.Utils.toast = () => {};
   const el = id => h.ctx.document.getElementById(id);
-  return { h, el, S: h.ctx.StaffRoles };
+  return { h, el, S: h.ctx.StaffRoles, dialogs };
 }
-const areas = html => [...html.matchAll(/<tr data-area="([^"]+)"/g)].map(m => m[1]);
+const writes = calls => calls.filter(c => c.method && c.method !== 'GET');
 
 (async () => {
 console.log('=== staff-roles: Roles & Permissions ===\n');
-const ROUTES = await realRoutes();
 
-/* ---------- 1. helpers ---------- */
 console.log('-- 1. helpers --');
 {
   const { S } = page({ origin: '' });
-  const caps = S.capabilities(ROUTES);
-  const by = k => caps.find(a => a.key === k);
-  check('one area per collection the Worker serves, in sidebar order; health and session are left out', caps.map(a => a.key),
-    ['customers', 'vehicles', 'appointments', 'job-cards', 'estimates', 'services', 'parts', 'inventory-transactions', 'invoices',
-      'invoice-adjustments', 'payments', 'expenses', 'follow-ups', 'follow-up-contacts', 'follow-up-tasks', 'mechanics', 'staff', 'accounts', 'settings', 'tools', 'activity-log', 'attendance', 'leave-requests', 'notifications', 'website-forms']);
-  ok('every real area is named: from the page\'s list, or (Attendance, Leave Requests and Activity Log, Website Forms and Notifications, added after it) from its path, never hidden',
-    caps.every(a => S.AREAS.some(([k, l]) => k === a.key && l === a.label)) || caps.every(a => S.AREAS.some(([k, l]) => k === a.key && l === a.label)
-      || (a.key === 'attendance' && a.label === 'Attendance') || (a.key === 'leave-requests' && a.label === 'Leave Requests')
-      || (a.key === 'activity-log' && a.label === 'Activity Log') || (a.key === 'website-forms' && a.label === 'Website Forms')
-      || (a.key === 'notifications' && a.label === 'Notifications')), '');
-  const ops = k => ['view', 'create', 'edit', 'remove'].map(o => by(k)[o]);
-  check('customers: view, create, edit and delete', ops('customers'), [true, true, true, true]);
-  check('estimates: no delete; send / approve / reject / cancel / convert', [ops('estimates'), by('estimates').actionLabels],
-    [[true, true, true, false], ['Send', 'Approve', 'Reject', 'Cancel', 'Convert to job card']]);
-  check('tools: named, no delete (a tool is retired); Retire is its one action', [by('tools').label, ops('tools'), by('tools').actionLabels],
-    ['Workshop Assets: Tools & Equipment', [true, true, true, false], ['Retire']]);
-  check('staff and user accounts: no delete (they are switched off instead)', [ops('staff'), ops('accounts'), by('accounts').actionLabels],
-    [[true, true, true, false], [true, true, true, false], ['Set new password']]);
-  check('stock movements and invoice adjustments: no edit or delete', [ops('inventory-transactions'), ops('invoice-adjustments')],
-    [[true, true, false, false], [true, true, false, false]]);
-  check('settings: view and edit only', ops('settings'), [true, false, true, false]);
-  check('only User Accounts is administrators-only (what src/routes/accounts.js enforces)', caps.filter(a => a.adminOnly).map(a => a.key), ['accounts']);
-  check('an unknown route is still shown, named from its path; malformed entries are ignored',
-    S.capabilities(['GET /api/tyre-stock', 'POST /api/tyre-stock/:id/rotate', 'nonsense', 'PATCH /api/customers', 'GET /api/session']).map(a => [a.key, a.label, a.view, a.actionLabels]),
-    [['tyre-stock', 'Tyre Stock', true, ['Rotate']]]);
-  check('no routes, no areas', [S.capabilities([]).length, S.capabilities(null).length], [0, 0]);
-  check('one role: Administrator (what the Worker accepts)', S.ROLES.map(r => r.name), ['Administrator']);
-  check('account counts per role', [JSON.parse(JSON.stringify(S.members(ACCOUNTS, 'Administrator'))), S.members(ACCOUNTS, 'Mechanic').total, S.members(null, 'Administrator').total],
-    [{ total: 3, active: 2 }, 0, 0]);
-  check('count wording', [S.membersText({ total: 3, active: 2 }), S.membersText({ total: 1, active: 1 }), S.membersText({ total: 0, active: 0 })],
-    ['3 accounts (2 active)', '1 account', '0 accounts']);
-  const row = S.rowHtml({ key: 'x', label: '<b>Bad</b>', view: true, create: false, edit: false, remove: false, actionLabels: ['<i>'], adminOnly: false });
-  ok('a row escapes every value', !row.includes('<b>Bad') && row.includes('&lt;b&gt;Bad&lt;/b&gt;') && row.includes('&lt;i&gt;'), row);
-  ok('   ...says "allowed" or "the app has no such action" in words, not only by colour', /View: allowed/.test(row) && /Create: the app has no such action/.test(row), row);
-  ok('   ...an area open to anyone signed in says so', /Anyone signed in/.test(row) && !/Administrators only/.test(row), '');
-  ok('the User Accounts row says administrators only', /Administrators only/.test(S.rowHtml(by('accounts'))), '');
+  check('roles filter by name or description, and by status', [S.filterRoles(ROLES, { q: 'NIGHT' }).map(r => r.id), S.filterRoles(ROLES, { q: 'desk' }).map(r => r.id), S.filterRoles(ROLES, { status: 'Inactive' }).map(r => r.id)],
+    [['ROL-0009'], ['ROL-0009'], ['ROL-0010']]);
+  check('accounts filter by name / username and by role', [S.filterAccounts(ACCOUNTS, { q: 'rafi' }).map(a => a.id), S.filterAccounts(ACCOUNTS, { roleId: 'ROL-0001' }).map(a => a.id)], [['USR-0002'], ['USR-0001']]);
+  const m = S.matrixHtml(CATALOG, ['customers.view', 'invoices.manage']);
+  check('the matrix has one row per module', [...m.matchAll(/<tr data-module="([^"]+)"/g)].map(x => x[1]), ['customers', 'invoices', 'roles']);
+  ok('   ...allowed, not allowed, and "no such action" are three different marks', /title="View: allowed"/.test(m) && /title="Create: not allowed"/.test(m) && /The module has no such action/.test(m), m.slice(0, 300));
+  const e = S.editorMatrixHtml(CATALOG, ['customers.view'], p => p !== 'invoices.manage');
+  ok('the editor ticks what the role has', /value="customers\.view" checked/.test(e), '');
+  ok('   ...and a permission the editor does not hold cannot be ticked', /value="invoices\.manage"[^>]*disabled/.test(e) && /your own role does not have this/.test(e), '');
+  ok('   ...and there is no box for an action a module does not have', !/value="invoices\.delete"/.test(e), '');
+  check('permission counts', [S.permissionCount(ROLES[0]), S.permissionCount(ROLES[1]), S.permissionCount(ROLES[3])], ['every permission', '3 permissions', '0 permissions']);
+  check('plain errors', ['forbidden', 'unauthorized', 'no_api', 'database_error'].map(code => S.errorWords({ code }).title),
+    ['Your role does not include Roles & Permissions', 'Your session has ended', 'Roles & Permissions needs the workshop database', 'The roles could not be loaded']);
 }
 
-/* ---------- 2. the page, connected ---------- */
-console.log('\n-- 2. the page in api mode --');
+console.log('\n-- 2. full access --');
 {
-  const f = api({ routes: ROUTES, account: { id: 'USR-0001', username: 'jamal', role: 'Administrator' } });
-  const { h, el } = page({ fetch: f });
+  const f = api();
+  const { h, el, dialogs } = page({ fetch: f });
   h.fireReady();
-  await tick(80);
-  ok('the routes and the accounts are read on demand', f.calls.filter(c => c.path === '/health').length >= 2 && f.calls.some(c => c.path === '/accounts?limit=1000&offset=0'), JSON.stringify(f.calls.map(c => c.path)));
-  ok('   ...and nothing is written', !f.calls.some(c => c.method && c.method !== 'GET'), '');
-  ok('one role card: Administrator, its account count and full access', /data-role="Administrator"/.test(el('ropRoleList').innerHTML)
-    && /3 accounts \(2 active\) · 25 areas, full access/.test(el('ropRoleList').innerHTML), el('ropRoleList').innerHTML);
-  check('the detail: name, description, account count', [el('ropRoleName').textContent, el('ropRoleDesc').textContent, el('ropRoleMembers').textContent],
-    ['Administrator', 'Full access to every part of the app, including user accounts and settings.', '3 accounts (2 active)']);
-  ok('   ...its rules, including the two the server checks', /Only an administrator can create accounts.*\(checked by the server\)/.test(el('ropRoleNotes').innerHTML)
-    && /At least one active administrator account must always remain \(checked by the server\)/.test(el('ropRoleNotes').innerHTML), '');
-  check('the matrix lists every real area', areas(el('ropBody').innerHTML).length, 25);
-  check('   ...and says where it came from', el('ropCount').textContent, '25 areas, read from the Worker');
-  ok('who is signed in', el('ropWho').textContent === 'You are signed in with the account “jamal” (Administrator).', el('ropWho').textContent);
-  ok('no alert when everything loaded', el('ropAlert').hidden === true, '');
-}
-{
-  const { h, el } = page({ fetch: api({ routes: ROUTES }) });
-  h.fireReady();
-  await tick(80);
-  ok('signed in with the passphrase: the page says so', el('ropWho').textContent === 'You are signed in with the shared workshop passphrase.', el('ropWho').textContent);
+  await tick(100);
+  const list = el('ropRoleList').innerHTML;
+  check('every role is listed', [...list.matchAll(/data-role="([^"]+)"/g)].map(x => x[1]), ['ROL-0001', 'ROL-0004', 'ROL-0009', 'ROL-0010']);
+  ok('   ...names are escaped', list.includes('&lt;b&gt;Night shift') && !list.includes('<b>Night'), '');
+  ok('   ...Super Admin is marked System, the switched-off role Off', /Super Admin <span class="badge badge--info rop-tag">System/.test(list) && /Old role <span class="badge badge--neutral rop-tag">Off/.test(list), '');
+  check('your own role (Super Admin) is shown first', el('ropRoleName').textContent, 'Super Admin');
+  ok('   ...with every permission ticked', !/is-no/.test(el('ropBody').innerHTML) && /is-yes/.test(el('ropBody').innerHTML), '');
+  ok('   ...and no Edit, Switch off or Delete (it is protected, and it is your own)', !/data-act="(edit|off|delete)"/.test(el('ropRoleActions').innerHTML) && /data-act="copy"/.test(el('ropRoleActions').innerHTML), el('ropRoleActions').innerHTML);
+  ok('   ...the notes say it is protected', /protected system role/.test(el('ropRoleNotes').innerHTML), '');
+  ok('   ...its holders are listed', /Nadia Akter/.test(el('ropHolders').innerHTML), '');
+
+  el('ropRoleList').dispatch('click', { target: { closest: () => ({ dataset: { role: 'ROL-0004' } }) } });
+  const acts = el('ropRoleActions').innerHTML;
+  ok('a custom role offers Edit, Switch off, Delete and Copy', ['edit', 'off', 'delete', 'copy'].every(a => acts.includes(`data-act="${a}"`)), acts);
+  ok('   ...Switch off and Delete are disabled while an account holds it, saying why', /data-act="off" disabled title="1 account holds this role/.test(acts) && /data-act="delete" disabled/.test(acts), acts);
+  ok('   ...the matrix shows what it has and what it has not', /title="View: allowed"/.test(el('ropBody').innerHTML) && /title="Delete: not allowed"/.test(el('ropBody').innerHTML), '');
+
+  el('ropRoleList').dispatch('click', { target: { closest: () => ({ dataset: { role: 'ROL-0010' } }) } });
+  ok('a switched-off role offers Switch on', /data-act="on"/.test(el('ropRoleActions').innerHTML), '');
+  el('ropRoleActions').dispatch('click', { target: { closest: () => ({ dataset: { act: 'on' }, disabled: false }) } });
+  const on = dialogs.pop();
+  ok('   ...which asks first', on && on.kind === 'confirm' && on.confirmText === 'Switch on', '');
+  await on.onConfirm();
+  await tick(60);
+  const put = writes(f.calls).find(c => c.method === 'PUT' && c.path === '/roles/ROL-0010');
+  check('   ...and sends the status with the version it saw', put && put.body, { status: 'Active', expectedUpdatedAt: '2026-11-01T00:00:00.000Z' });
+
+  el('ropSearch').dispatch('input', { target: { value: 'account' } });
+  check('the role search filters the list', [...el('ropRoleList').innerHTML.matchAll(/data-role="([^"]+)"/g)].map(x => x[1]), ['ROL-0004']);
+  el('ropSearch').dispatch('input', { target: { value: 'zzz' } });
+  ok('   ...and says so when nothing matches', /No roles match/.test(el('ropRoleList').innerHTML), '');
+
+  check('the assignment table is shown', el('ropAssignCard').hidden, false);
+  const users = el('ropUsers').innerHTML;
+  check('   ...one row per account', [...users.matchAll(/<tr data-account="([^"]+)"/g)].map(x => x[1]), ['USR-0001', 'USR-0002']);
+  ok('   ...your own role cannot be changed (disabled, with the reason)', /data-account="USR-0001" aria-label="Role for nadia" disabled title="You cannot change your own role\."/.test(users), users.slice(0, 600));
+  ok('   ...the offered roles are the active ones you may give (no switched-off role)', /<option value="ROL-0004" selected>Accountant/.test(users) && !/value="ROL-0010"/.test(users), '');
+  // Choose a new role for Rafi, then Save.
+  h.ctx.document.querySelector = (sel) => (sel === '.rop-role-select[data-account="USR-0002"]' ? { value: 'ROL-0009' } : null);
+  el('ropUsers').dispatch('click', { target: { closest: (sel) => (sel === '[data-assign]' ? { dataset: { assign: 'USR-0002' }, disabled: false } : null) } });
+  const ask = dialogs.pop();
+  ok('Save asks first, naming the person and both roles, and that they are signed out', ask && ask.kind === 'confirm' && /Rafi Test/.test(ask.message) && /Accountant/.test(ask.message)
+    && /&lt;b&gt;Night shift/.test(ask.message) && /signed out/.test(ask.message), ask && ask.message);
+  ok('   ...nothing is sent before confirming', !writes(f.calls).some(c => c.path.startsWith('/accounts')), '');
+  await ask.onConfirm();
+  await tick(60);
+  const assign = writes(f.calls).find(c => c.path === '/accounts/USR-0002');
+  check('   ...then sends exactly { roleId }', assign && assign.body, { roleId: 'ROL-0009' });
 }
 
-/* ---------- 3. feedback, failures, no backend ---------- */
-console.log('\n-- 3. feedback, failures, no backend --');
+console.log('\n-- 3. create and edit --');
 {
-  const f = api({ routes: ROUTES });
-  const { h, el } = page({ fetch: f });
-  const toasts = [];
-  h.ctx.Utils.toast = (msg, type) => toasts.push([msg, type]);
+  const f = api();
+  const { h, el, dialogs } = page({ fetch: f });
   h.fireReady();
-  await tick(80);
-  const before = f.calls.length;
-  el('ropEdit').dispatch('click', { preventDefault() {} });
-  ok('Edit permissions only explains it is unavailable, and why', toasts.length === 1 && toasts[0][1] === 'info'
-    && /cannot be edited yet/.test(toasts[0][0]) && /server does not check any narrower permission/.test(toasts[0][0]) && /Nothing was changed/.test(toasts[0][0]), JSON.stringify(toasts));
-  ok('   ...and sends nothing', f.calls.length === before, '');
+  await tick(100);
+  check('New role is offered to a role that may create roles', el('ropCreate').hidden, false);
+  el('ropCreate').dispatch('click');
+  const dlg = dialogs.pop();
+  ok('it opens the role dialog, with the matrix to tick', dlg && dlg.kind === 'open' && dlg.title === 'New role' && /name="perm"/.test(dlg.body) && /value="dashboard|value="customers\.view"/.test(dlg.body), dlg && dlg.title);
+  el('ropRoleList').dispatch('click', { target: { closest: () => ({ dataset: { role: 'ROL-0009' } }) } });
+  el('ropRoleActions').dispatch('click', { target: { closest: () => ({ dataset: { act: 'edit' }, disabled: false }) } });
+  const edit = dialogs.pop();
+  ok('Edit opens it with the role\'s name (escaped) and its permissions ticked', edit && /value="&lt;b&gt;Night shift&lt;\/b&gt;"/.test(edit.body) && /value="customers\.view" checked/.test(edit.body), edit && edit.body.slice(0, 300));
+  el('ropRoleActions').dispatch('click', { target: { closest: () => ({ dataset: { act: 'delete' }, disabled: false }) } });
+  const del = dialogs.pop();
+  ok('Delete (no account holds it) asks first', del && del.kind === 'confirm' && /cannot be undone/.test(del.message), '');
+  await del.onConfirm();
+  await tick(60);
+  ok('   ...then sends DELETE /api/roles/ROL-0009', writes(f.calls).some(c => c.method === 'DELETE' && c.path === '/roles/ROL-0009'), '');
 }
+
+console.log('\n-- 4. a role that may only view roles --');
 {
-  const { h, el } = page({ fetch: api({ routes: ROUTES, failAccounts: { status: 403, error: { code: 'forbidden', message: 'Only an administrator can manage user accounts.' } } }) });
-  h.fireReady();
-  await tick(80);
-  ok('accounts refused (403): the permissions are still shown', areas(el('ropBody').innerHTML).length === 25, '');
-  ok('   ...the alert says only an administrator can see who holds each role', el('ropAlert').hidden === false && /Only an administrator can see who holds each role/.test(el('ropAlert').textContent), el('ropAlert').textContent);
-  ok('   ...and no count is made up', el('ropRoleMembers').textContent === 'Accounts not shown' && /Accounts not shown/.test(el('ropRoleList').innerHTML), el('ropRoleMembers').textContent);
-}
-{
-  const { h, el } = page({ fetch: api({ routes: ROUTES, failAccounts: { status: 500, error: { code: 'database_error', message: 'x' } } }) });
-  h.fireReady();
-  await tick(80);
-  ok('accounts failed (500): permissions shown, the alert says the counts could not be loaded', areas(el('ropBody').innerHTML).length === 25 && /could not be loaded/.test(el('ropAlert').textContent), el('ropAlert').textContent);
-}
-{
-  const f = api({ routes: ROUTES, failHealth: true });
+  const f = api({ session: { fullAccess: false, permissions: ['roles.view', 'customers.view'] }, account: { id: 'USR-0002', username: 'rafi', role: 'Accountant', roleId: 'ROL-0004' },
+    roles: ROLES.map(r => ({ ...r, canManage: r.id === 'ROL-0009' })) });
   const { h, el } = page({ fetch: f });
   h.fireReady();
-  await tick(80);
-  ok('the route list failed: no matrix, a plain message and Try again', areas(el('ropBody').innerHTML).length === 0
-    && /The permissions could not be loaded/.test(el('ropBody').innerHTML) && /data-action="retry"/.test(el('ropBody').innerHTML), el('ropBody').innerHTML);
+  await tick(100);
+  check('no New role', el('ropCreate').hidden, true);
+  check('it opens on their own role', el('ropRoleName').textContent, 'Accountant');
+  ok('   ...which says they cannot change it', /This is your own role/.test(el('ropRoleNotes').innerHTML), '');
+  ok('no Edit, Switch off or Delete anywhere', !/data-act="(edit|off|on|delete|copy)"/.test(el('ropRoleActions').innerHTML), el('ropRoleActions').innerHTML);
+  check('no assignment table, and the accounts are not even asked for', [el('ropAssignCard').hidden, f.calls.some(c => c.path.startsWith('/accounts'))], [true, false]);
+  ok('nothing was written', !writes(f.calls).length, '');
 }
-{
-  const { h, el } = page({ fetch: api({ routes: ROUTES, failAccounts: { status: 401, error: { code: 'unauthorized', message: 'Sign in.' } } }) });
+
+console.log('\n-- 5. failures --');
+for (const [name, failRoles, re] of [
+  ['refused (403)', { status: 403, error: { code: 'forbidden', message: 'Your role does not allow this.' } }, /Your role does not include Roles &amp; Permissions/],
+  ['failed (500)', { status: 500, error: { code: 'database_error', message: 'Could not read the roles.' } }, /The roles could not be loaded[\s\S]*data-action="retry"/],
+  ['ended (401)', { status: 401, error: { code: 'unauthorized', message: 'Authentication required.' } }, null],
+]) {
+  const f = api({ failRoles });
+  const { h, el } = page({ fetch: f });
   h.fireReady();
-  await tick(80);
-  ok('session ended (401): says so and offers to sign in again, no matrix', /Your session has ended/.test(el('ropBody').innerHTML) && /data-action="signin"/.test(el('ropBody').innerHTML) && areas(el('ropBody').innerHTML).length === 0, '');
+  await tick(100);
+  if (re) ok(`${name}: says so, with no roles`, re.test(el('ropBody').innerHTML) && !/data-role=/.test(el('ropRoleList').innerHTML), el('ropBody').innerHTML.slice(0, 300));
+  else ok(`${name}: the app locks or says the session ended`, !/data-role=/.test(el('ropRoleList').innerHTML), '');
 }
 {
   const { h, el } = page({ origin: '' });
   h.fireReady();
   await tick(60);
-  ok('no backend: the page says it needs the workshop database, and shows no permissions', /needs the workshop database/.test(el('ropBody').innerHTML) && areas(el('ropBody').innerHTML).length === 0, '');
+  ok('no backend: the page says it needs the workshop database, and shows no roles', /needs the workshop database/.test(el('ropBody').innerHTML) && !/data-role=/.test(el('ropRoleList').innerHTML), el('ropBody').innerHTML.slice(0, 200));
 }
 
-summary('staff-roles');
-})().catch(e => { console.error(e); process.exit(1); });
+process.exit(summary('staff-roles') === 0 ? 0 : 1);
+})();

@@ -46,7 +46,7 @@ const AT = '2026-10-08T00:00:00Z';
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
   '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0010_attendance.sql',
-  '0011_leave_requests.sql', '0012_activity_log.sql', '0013_tools.sql'];
+  '0011_leave_requests.sql', '0012_activity_log.sql', '0013_tools.sql', '0018_roles_permissions.sql'];
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -139,7 +139,7 @@ const add = async (h, extra) => (await h.api('POST', '/api/tools', TOOL(extra)))
   let again = 'ok';
   try { h.DB.raw.exec(readFileSync(join(ROOT, 'migrations', '0013_tools.sql'), 'utf8')); } catch (e) { again = e.message; }
   check('the migration is re-runnable and keeps the counter', [again, h.one("SELECT count(*) AS n FROM id_counters WHERE collection='tools'").n], ['ok', 1]);
-  const before = MIGRATIONS.slice(0, -1);
+  const before = MIGRATIONS.filter((f) => f !== '0013_tools.sql');
   const plain = new DatabaseSync(':memory:');
   for (const f of before) plain.exec(readFileSync(join(ROOT, 'migrations', f), 'utf8'));
   const tables = (db) => db.prepare("SELECT name, sql FROM sqlite_master WHERE type IN ('table','index') AND name NOT LIKE '%tools%' AND sql IS NOT NULL ORDER BY name").all();
@@ -253,21 +253,22 @@ const add = async (h, extra) => (await h.api('POST', '/api/tools', TOOL(extra)))
 {
   const h = fresh();
   const owner = (await h.api('POST', '/api/session', { passphrase: PASSPHRASE }, 'none')).cookie;
-  await h.api('POST', '/api/accounts', { staffId: 'MEC-0001', username: 'jamal', role: 'Administrator', password: PW }, owner);
-  await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Administrator', password: PW }, owner);
-  h.DB.raw.exec("UPDATE user_accounts SET role = 'Viewer' WHERE username = 'nadia'");
+  await h.api('POST', '/api/accounts', { staffId: 'MEC-0001', username: 'jamal', role: 'Super Admin', password: PW }, owner);
+  await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Super Admin', password: PW }, owner);
+  // Manager (0018): may add and edit tools, but not retire them (tools.manage).
+  h.DB.raw.exec("UPDATE user_accounts SET role_id = 'ROL-0003' WHERE username = 'nadia'");
   const admin = (await h.api('POST', '/api/session', { username: 'jamal', password: PW }, 'none')).cookie;
   const viewer = (await h.api('POST', '/api/session', { username: 'nadia', password: PW }, 'none')).cookie;
 
   const t = await add(h, { serialNo: 'R-1' });
   const byViewer = await h.api('POST', `/api/tools/${t.id}/retire`, { reason: 'Old', expectedUpdatedAt: t.updatedAt }, viewer);
-  check('a non-administrator account cannot retire (403), nothing changes', [byViewer.status, h.one('SELECT status FROM tools WHERE id=?', t.id).status], [403, 'Available']);
+  check('an account whose role lacks Workshop Assets: retire (a Manager) cannot retire (403), nothing changes', [byViewer.status, h.one('SELECT status FROM tools WHERE id=?', t.id).status], [403, 'Available']);
   const created = await h.api('POST', '/api/tools', TOOL({ name: 'By Nadia' }), viewer);
-  check('a non-administrator can still register and edit tools', [created.status, created.body.data.createdBy], [201, 'nadia']);
+  check('   ...but its role may still register and edit tools', [created.status, created.body.data.createdBy], [201, 'nadia']);
   check('a reason is required', Object.keys((await h.api('POST', `/api/tools/${t.id}/retire`, { reason: ' ', expectedUpdatedAt: t.updatedAt }, admin)).body.error.fields), ['reason']);
   check('a stale retire is 409', (await h.api('POST', `/api/tools/${t.id}/retire`, { reason: 'Old', expectedUpdatedAt: AT }, admin)).status, 409);
   const done = await h.api('POST', `/api/tools/${t.id}/retire`, { reason: 'Worn out', expectedUpdatedAt: t.updatedAt }, admin);
-  check('an Administrator account retires it', [done.status, done.body.data.status, done.body.data.retiredReason, done.body.data.updatedBy, Boolean(done.body.data.retiredAt)],
+  check('a Super Admin account retires it', [done.status, done.body.data.status, done.body.data.retiredReason, done.body.data.updatedBy, Boolean(done.body.data.retiredAt)],
     [200, 'Retired', 'Worn out', 'jamal', true]);
   check('retiring twice is 409', (await h.api('POST', `/api/tools/${t.id}/retire`, { reason: 'x', expectedUpdatedAt: done.body.data.updatedAt }, admin)).body.error.reason, 'already_retired');
   check('a retired tool cannot be edited', (await h.api('PUT', `/api/tools/${t.id}`, { name: 'x', expectedUpdatedAt: done.body.data.updatedAt })).body.error.reason, 'tool_retired');

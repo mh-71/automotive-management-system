@@ -55,7 +55,7 @@ const AT = '2026-10-08T00:00:00Z';
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
   '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0010_attendance.sql',
-  '0011_leave_requests.sql'];
+  '0011_leave_requests.sql', '0018_roles_permissions.sql'];
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -195,22 +195,23 @@ console.log('\n-- B. authorization --');
   const made = await h.api('POST', PATH, NEW(), owner);
   check('the passphrase session may read and submit', [(await h.api('GET', PATH, undefined, owner)).status, made.status], [200, 201]);
   check('so may the machine token', (await h.api('GET', `${PATH}/LVR-0001`)).status, 200);
-  await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Administrator', password: PW }, owner);
+  await h.api('POST', '/api/accounts', { staffId: 'STF-0001', username: 'nadia', role: 'Super Admin', password: PW }, owner);
   const admin = (await h.api('POST', '/api/session', { username: 'nadia', password: PW }, 'none')).cookie;
   const second = await h.api('POST', PATH, NEW({ staffId: 'STF-0001' }), admin);
-  check('an Administrator account may submit too', second.status, 201);
-  // No role but Administrator can be created through the API; one set directly in
-  // the database stands in for a future narrower role.
-  h.DB.raw.exec("UPDATE user_accounts SET role = 'Viewer' WHERE username = 'nadia'");
+  check('a Super Admin account may submit too', second.status, 201);
+  // 0018: a role that may read and submit leave, but not decide it.
+  h.DB.raw.exec(`INSERT INTO roles (id, name, created_at, updated_at) VALUES ('ROL-0101', 'Leave Clerk', '${AT}', '${AT}');
+    INSERT INTO role_permissions (role_id, permission) VALUES ('ROL-0101', 'leave.view'), ('ROL-0101', 'leave.create');
+    UPDATE user_accounts SET role_id = 'ROL-0101' WHERE username = 'nadia';`);
   const viewerApprove = await h.api('POST', `${PATH}/LVR-0001/approve`, { expectedUpdatedAt: made.body.data.updatedAt }, admin);
   const viewerReject = await h.api('POST', `${PATH}/LVR-0001/reject`, { expectedUpdatedAt: made.body.data.updatedAt, note: 'no' }, admin);
-  check('an account with any other role may not approve or reject: 403, the request stays Pending',
+  check('a role without Leave: approve may not approve or reject: 403, the request stays Pending',
     [viewerApprove.status, viewerApprove.body?.error?.code, viewerReject.status, h.one("SELECT status FROM leave_requests WHERE id = 'LVR-0001'").status],
     [403, 'forbidden', 403, 'Pending']);
   check('   ...but may still read', (await h.api('GET', PATH, undefined, admin)).status, 200);
-  h.DB.raw.exec("UPDATE user_accounts SET role = 'Administrator' WHERE username = 'nadia'");
+  h.DB.raw.exec("UPDATE user_accounts SET role_id = 'ROL-0001' WHERE username = 'nadia'");
   const yes = await h.api('POST', `${PATH}/LVR-0001/approve`, { expectedUpdatedAt: made.body.data.updatedAt }, admin);
-  check('an Administrator account may approve, and is named as the decider', [yes.status, yes.body?.data?.status, yes.body?.data?.decidedBy], [200, 'Approved', 'nadia']);
+  check('a Super Admin account may approve, and is named as the decider', [yes.status, yes.body?.data?.status, yes.body?.data?.decidedBy], [200, 'Approved', 'nadia']);
   const byOwner = await h.api('POST', `${PATH}/${second.body.data.id}/reject`, { expectedUpdatedAt: second.body.data.updatedAt, note: 'Short staffed' }, owner);
   check('the passphrase session may reject', [byOwner.status, byOwner.body?.data?.status, byOwner.body?.data?.decidedBy], [200, 'Rejected', 'Workshop passphrase']);
 }
@@ -333,9 +334,9 @@ console.log('\n-- F. compatibility --');
   check('submitting and approving leave changes no other table -- no attendance record is made', counts(), before);
   check('the attendance of that day still reads as nothing recorded', (await h.api('GET', `/api/attendance?date=${D(0)}`)).body?.data?.length, 0);
   const routes = (await h.api('GET', '/api/health')).body?.data?.routes ?? [];
-  check('the registry holds the five leave routes (144 with the two activity-log routes of 0012, the five tools routes of 0013, the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 and the five Notifications routes of 0017)',
+  check('the registry holds the five leave routes (149 with the two activity-log routes of 0012, the five tools routes of 0013, the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 the five Notifications routes of 0017 and the five Roles routes of 0018)',
     [routes.length, routes.filter((r) => r.includes('/api/leave-requests'))],
-    [144, ['GET /api/leave-requests', 'POST /api/leave-requests', 'GET /api/leave-requests/:id',
+    [149, ['GET /api/leave-requests', 'POST /api/leave-requests', 'GET /api/leave-requests/:id',
       'POST /api/leave-requests/:id/approve', 'POST /api/leave-requests/:id/reject']]);
   await h.api('POST', PATH, NEW({ staffId: 'MEC-0004', startDate: D(50), endDate: D(50) }));
   const del = await h.api('DELETE', '/api/mechanics/MEC-0004');

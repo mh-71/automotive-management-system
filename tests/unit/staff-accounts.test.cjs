@@ -32,14 +32,21 @@ const STAFF = [
   { id: 'STF-0002', isMechanic: false, name: 'Gone Staff', designation: 'Helper', department: 'Workshop', status: 'Inactive' },
 ];
 const acct = (id, staffId, staffName, username, extra = {}) => ({ id, staffId, isMechanic: staffId.startsWith('MEC'), staffName, staffStatus: 'Active',
-  designation: '', username, role: 'Administrator', status: 'Active', locked: false, lastLoginAt: '', passwordChangedAt: '2026-10-01T09:00:00.000Z',
+  designation: '', username, role: 'Super Admin', status: 'Active', locked: false, lastLoginAt: '', passwordChangedAt: '2026-10-01T09:00:00.000Z',
   createdAt: '2026-10-01T09:00:00.000Z', self: false, ...extra });
 const ACCOUNTS = [
   acct('USR-0001', 'MEC-0001', 'Jamal Uddin', 'jamal', { self: true, lastLoginAt: '2026-10-22T08:30:00.000Z' }),
   acct('USR-0002', 'STF-0001', '<img src=x onerror=alert(1)>', 'nadia', { status: 'Inactive' }),
 ];
 
-/** fakeApi for the hydrated collections; /accounts and /staff answered as the Worker would. */
+// GET /api/roles as the Worker answers it (0018): canManage = this caller may give the role.
+const ROLES = [
+  { id: 'ROL-0001', name: 'Super Admin', status: 'Active', canManage: true },
+  { id: 'ROL-0002', name: 'Admin', status: 'Active', canManage: false },
+  { id: 'ROL-0004', name: 'Accountant', status: 'Inactive', canManage: true },
+  { id: 'ROL-0007', name: 'Mechanic', status: 'Active', canManage: true },
+];
+/** fakeApi for the hydrated collections; /accounts, /staff and /roles answered as the Worker would. */
 function api({ accounts = ACCOUNTS, staff = STAFF, failAccounts = null, failWrite = null, account = null } = {}) {
   const base = fakeApi({ rows: { mechanics: [] } });
   const calls = base.calls;
@@ -53,6 +60,7 @@ function api({ accounts = ACCOUNTS, staff = STAFF, failAccounts = null, failWrit
       return res(200, { data: { authenticated: true, passphrase: true, accounts: true, ...(account ? { account } : {}) } });
     }
     if (path.startsWith('/staff')) { calls.push({ method, path, body }); return res(200, { data: staff, total: staff.length }); }
+    if (path.startsWith('/roles')) { calls.push({ method, path, body }); return res(200, { data: ROLES, total: ROLES.length }); }
     if (!path.startsWith('/accounts')) return base(url, init);
     calls.push({ method, path, body });
     if (failAccounts) return res(failAccounts.status, { error: failAccounts.error });
@@ -106,17 +114,20 @@ console.log('-- 1. helpers --');
   const ids = (list) => list.map(a => a.id);
   check('search: name, staff ID, username, any case', [ids(ACCOUNTS.filter(a => S.matchesSearch(a, 'JAMAL'))), ids(ACCOUNTS.filter(a => S.matchesSearch(a, 'stf-0001'))), ids(ACCOUNTS.filter(a => S.matchesSearch(a, 'nad')))],
     [['USR-0001'], ['USR-0002'], ['USR-0002']]);
-  check('filters: status and role', [ids(S.filterAccounts(ACCOUNTS, { status: 'Inactive' })), S.filterAccounts(ACCOUNTS, { role: 'Administrator' }).length, S.filterAccounts(ACCOUNTS, { role: 'Mechanic' }).length], [['USR-0002'], 2, 0]);
+  check('filters: status and role', [ids(S.filterAccounts(ACCOUNTS, { status: 'Inactive' })), S.filterAccounts(ACCOUNTS, { role: 'Super Admin' }).length, S.filterAccounts(ACCOUNTS, { role: 'Mechanic' }).length], [['USR-0002'], 2, 0]);
   check('eligible for an account: active staff without one, sorted by name', S.eligibleStaff(STAFF, ACCOUNTS).map(s => s.id), ['MEC-0002']);
   check('summary cards', JSON.parse(JSON.stringify(S.summary(ACCOUNTS, STAFF))), { total: 2, active: 1, inactive: 1, none: 1 });
   check('username suggestions', [S.suggestUsername('Nadia Akter'), S.suggestUsername('José  Núñez Pérez'), S.suggestUsername('নাদিয়া'), S.suggestUsername('Al')], ['nadia.akter', 'jose.nunez', '', '']);
   check('password rules', [S.passwordProblem('short'), S.passwordProblem('kamal-is-my-name', 'kamal'), S.passwordProblem(' padded-password '), S.passwordProblem('Correct-Horse-42', 'kamal')],
     ['Use at least 10 characters.', 'The password cannot contain the username.', 'The password cannot start or end with a space.', null]);
-  const v = x => Object.keys(S.validateCreate({ staffId: 'MEC-0002', username: 'kamal', role: 'Administrator', password: 'Correct-Horse-42', confirm: 'Correct-Horse-42', ...x })).sort();
+  S.setRoles(ROLES, true);
+  const v = x => Object.keys(S.validateCreate({ staffId: 'MEC-0002', username: 'kamal', role: 'Mechanic', password: 'Correct-Horse-42', confirm: 'Correct-Horse-42', ...x })).sort();
   check('create form: a complete form passes', v({}), []);
-  check('create form: staff, username, role, password, and the repeat must match', [v({ staffId: '' }), v({ username: 'Ka Mal' }), v({ role: 'Mechanic' }), v({ password: 'x', confirm: 'x' }), v({ confirm: 'Correct-Horse-43' })],
+  check('create form: staff, username, role, password, and the repeat must match', [v({ staffId: '' }), v({ username: 'Ka Mal' }), v({ role: 'Admin' }), v({ password: 'x', confirm: 'x' }), v({ confirm: 'Correct-Horse-43' })],
     [['staffId'], ['username'], ['role'], ['password'], ['confirm']]);
-  check('only the Administrator role is offered (nothing narrower is enforced yet)', [...S.ROLES], ['Administrator']);
+  check('only roles this user may give are offered: active, and within their own permissions (canManage)', S.ROLES.filter(r => r.assignable).map(r => r.name), ['Super Admin', 'Mechanic']);
+  S.setRoles(ROLES, false);
+  check('   ...none at all without Roles: assign', S.ROLES.filter(r => r.assignable).length, 0);
   const mine = S.rowHtml(ACCOUNTS[0]), other = S.rowHtml(ACCOUNTS[1]);
   ok('a row escapes every value', !other.includes('<img src=x') && other.includes('&lt;img src=x onerror=alert(1)&gt;'), other);
   ok('your own account is marked, and its Deactivate is disabled with the reason', /badge--neutral">You</.test(mine) && /data-action="deactivate"[^>]*title="You cannot deactivate your own account\."[^>]*disabled/.test(mine), mine);
@@ -130,7 +141,7 @@ console.log('-- 1. helpers --');
 /* ---------- 2. the page, connected ---------- */
 console.log('\n-- 2. the page in api mode --');
 {
-  const f = api({ account: { id: 'USR-0001', username: 'jamal', role: 'Administrator' } });
+  const f = api({ account: { id: 'USR-0001', username: 'jamal', role: 'Super Admin' } });
   const { h, el, S } = page({ fetch: f });
   h.fireReady();
   await tick(80);
@@ -139,8 +150,8 @@ console.log('\n-- 2. the page in api mode --');
   ok('the controls are enabled once loaded', ['uacSearch', 'uacRole', 'uacStatus', 'uacClear', 'uacCreate'].every(id => el(id).disabled === false), '');
   check('every account is a row, sorted by name', rowIds(el('uacBody').innerHTML), ['USR-0002', 'USR-0001']);
   check('the cards come from the data', ['uacTotal', 'uacActive', 'uacInactive', 'uacNone'].map(id => el(id).textContent), ['2', '1', '1', '1']);
-  check('the role filter offers the roles the Worker accepts', (el('uacRole').innerHTML.match(/<option value="([^"]+)"/g) || []).length, 2);
-  check('it says who is signed in', el('uacWho').textContent, 'You are signed in with the account “jamal” (Administrator).');
+  check('the role filter offers every role (from GET /api/roles)', (el('uacRole').innerHTML.match(/<option value="([^"]+)"/g) || []).length, 5);
+  check('it says who is signed in', el('uacWho').textContent, 'You are signed in with the account “jamal” (Super Admin).');
   el('uacStatus').dispatch('change', { target: { value: 'Inactive' } });
   check('status filter', rowIds(el('uacBody').innerHTML), ['USR-0002']);
   el('uacStatus').dispatch('change', { target: { value: 'Retired' } });
@@ -170,7 +181,7 @@ console.log('\n-- 3. empty, failures, no backend --');
   ok('no accounts yet: says so, with Create Account', /No user accounts yet/.test(el('uacBody').innerHTML) && /data-action="create"/.test(el('uacBody').innerHTML), '');
 }
 for (const [label, status, code, re] of [
-  ['refused (403)', 403, 'forbidden', /Only an administrator can manage user accounts/],
+  ['refused (403)', 403, 'forbidden', /Your role does not include User Accounts/],
   ['failed (500)', 500, 'database_error', /could not be loaded[\s\S]*data-action="retry"/],
   ['ended session (401)', 401, 'unauthorized', /Your session has ended[\s\S]*data-action="signin"/]]) {
   const { h, el } = page({ fetch: api({ failAccounts: { status, error: { code, message: 'x' } } }) });
@@ -197,17 +208,19 @@ console.log('\n-- 4. writes --');
   h.fireReady();
   await tick(80);
   let opened = null;
-  const m = fakeModal({ '#ua-staff': 'MEC-0002', '#ua-username': ' Kamal ', '#ua-role': 'Administrator', '#ua-password': 'Correct-Horse-42', '#ua-confirm': 'Correct-Horse-42' });
+  const m = fakeModal({ '#ua-staff': 'MEC-0002', '#ua-username': ' Kamal ', '#ua-role': 'Mechanic', '#ua-password': 'Correct-Horse-42', '#ua-confirm': 'Correct-Horse-42' });
   h.ctx.Utils.Modal.open = (opts) => { opened = opts; return m.ov; };
   const toasts = [];
   h.ctx.Utils.toast = (msg, type) => toasts.push([msg, type]);
   el('uacCreate').dispatch('click');
   ok('Create Account opens a dialog listing only staff who can have an account', opened && /value="MEC-0002"/.test(opened.body) && !/value="MEC-0001"|value="STF-0001"|value="STF-0002"/.test(opened.body), opened && opened.body.slice(0, 300));
-  ok('   ...whose role list has only Administrator', opened && (opened.body.match(/<option value="Administrator">/g) || []).length === 1 && !/Mechanic<\/option>|Accountant<\/option>/.test(opened.body.replace(/\(.*?\)/g, '')), '');
+  ok('   ...whose role list has only the roles this user may give (not Admin, not the inactive Accountant)', opened
+    && /<option value="Super Admin">/.test(opened.body) && /<option value="Mechanic">/.test(opened.body)
+    && !/<option value="Admin">|<option value="Accountant">/.test(opened.body), opened && opened.body.slice(0, 400));
   await m.press();
   await tick(20);
   const post = f.calls.find(c => c.method === 'POST' && c.path === '/accounts');
-  check('Create sends exactly staffId, username (lower case, trimmed), role and password', post && post.body, { staffId: 'MEC-0002', username: 'kamal', role: 'Administrator', password: 'Correct-Horse-42' });
+  check('Create sends exactly staffId, username (lower case, trimmed), role and password', post && post.body, { staffId: 'MEC-0002', username: 'kamal', role: 'Mechanic', password: 'Correct-Horse-42' });
   check('   ...and clears both password fields afterwards', [m.inputs['#ua-password'].value, m.inputs['#ua-confirm'].value], ['', '']);
   ok('   ...the new account is listed, and the success says so', rowIds(el('uacBody').innerHTML).includes('USR-0003') && toasts.some(([t, k]) => k === 'success' && /kamal/.test(t)), JSON.stringify(toasts));
 
@@ -244,7 +257,7 @@ console.log('\n-- 4. writes --');
   const { h, el } = page({ fetch: f });
   h.fireReady();
   await tick(80);
-  const m = fakeModal({ '#ua-staff': 'MEC-0002', '#ua-username': 'nadia', '#ua-role': 'Administrator', '#ua-password': 'Correct-Horse-42', '#ua-confirm': 'Correct-Horse-42' });
+  const m = fakeModal({ '#ua-staff': 'MEC-0002', '#ua-username': 'nadia', '#ua-role': 'Mechanic', '#ua-password': 'Correct-Horse-42', '#ua-confirm': 'Correct-Horse-42' });
   h.ctx.Utils.Modal.open = () => m.ov;
   let closed = false;
   h.ctx.Utils.Modal.close = () => { closed = true; };

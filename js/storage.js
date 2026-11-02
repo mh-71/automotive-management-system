@@ -82,7 +82,8 @@ const Storage = (() => {
     attendance: 'attendance',
     leaveRequests: 'leave-requests',
     activityLog: 'activity-log',
-    tools: 'tools'
+    tools: 'tools',
+    roles: 'roles'
   };
 
   /**
@@ -104,7 +105,27 @@ const Storage = (() => {
   // Worker decides what any caller may do.
   let signedInAccount = null;
 
-  const API_ONLY = ['followUps', 'followUpContacts', 'followUpTasks', 'estimates', 'staff', 'accounts', 'attendance', 'leaveRequests', 'activityLog', 'tools'];
+  /* What the signed-in caller may do (0018), from GET /api/session. Used to
+     show only what will work -- every request is still checked by the
+     server, which never reads any of this back. `null` = not known yet (no
+     session, or no API): then nothing is hidden, because nothing can be
+     fetched either. */
+  let grant = null;
+  // Core collections the caller's role may not read (403 at hydration):
+  // empty here, and the pages say so instead of showing zeros as facts.
+  const denied = new Set();
+  /** May the signed-in caller do this? (`perm` like 'invoices.view'.) */
+  function can(perm) {
+    if (!grant) return true;
+    return grant.fullAccess || grant.permissions.has(perm);
+  }
+  /** Did hydration find this collection off-limits to the caller's role? */
+  const isDenied = collection => denied.has(collection);
+  /** The shell found this page off-limits: run no more ready callbacks (the module's). */
+  let pageBlocked = false;
+  const blockPage = () => { pageBlocked = true; };
+
+  const API_ONLY = ['followUps', 'followUpContacts', 'followUpTasks', 'estimates', 'staff', 'accounts', 'attendance', 'leaveRequests', 'activityLog', 'tools', 'roles'];
   const isApiOnly = c => API_ONLY.includes(c);
   const apiOnlyRefusal = () => ({
     ok: false, code: 'no_api', message: 'This needs the workshop database, which this page is not connected to.',
@@ -667,12 +688,20 @@ const Storage = (() => {
       }
       // Who is signed in: a staff member's account, or null for the workshop passphrase.
       signedInAccount = who.account || null;
+      grant = Array.isArray(who.permissions) ? { fullAccess: who.fullAccess === true, permissions: new Set(who.permissions) } : null;
+      denied.clear();
 
       const [results, websiteBookings, settings] = await Promise.all([
         Promise.all(COLLECTIONS.map(fetchAll)),
         fetchWebsiteBookings(),
         Api.get('/settings'),
       ]);
+      // A collection the caller's role may not read (403) is not a failure of
+      // the app: it is simply not theirs to see. It reads as empty and is
+      // remembered, so its pages can say so. Anything else still falls back.
+      results.forEach((r, i) => {
+        if (!r.ok && r.code === 'forbidden') { denied.add(COLLECTIONS[i]); results[i] = { ok: true, rows: [] }; }
+      });
       const failed = results.findIndex(r => !r.ok);
       if (failed !== -1) {
         const why = results[failed].code;
@@ -758,6 +787,8 @@ const Storage = (() => {
     API_ONLY.forEach(c => { delete cache[c]; });
     cachedSettings = null;
     signedInAccount = null;
+    grant = null;
+    denied.clear();
     mode = 'locked';
     hydration = null;
     settled = false;
@@ -801,12 +832,15 @@ const Storage = (() => {
     // `fn` receives what hydrate() decided -- which source is live and, when
     // it is not the expected one, why. Callers that do not care simply
     // ignore the argument.
+    // A page the caller's role may not open (app.js blockPage()) runs none of
+    // its module's ready callbacks: the shell's own runs first and decides.
     const run = () => {
       if (settled) {
+        if (pageBlocked) return;
         try { fn(outcome); } catch (e) { console.error('Page initialisation failed:', e); }
         return;
       }
-      hydrated.then(result => fn(result))
+      hydrated.then(result => { if (!pageBlocked) fn(result); })
         .catch(e => console.error('Page initialisation failed:', e));
     };
 
@@ -823,6 +857,9 @@ const Storage = (() => {
     hydrate, whenReady, ready, signIn, signInWithAccount, signOut,
     get mode() { return mode; },
     get account() { return signedInAccount; },
+    get fullAccess() { return !!(grant && grant.fullAccess); },
+    get permissions() { return grant ? [...grant.permissions] : null; },
+    can, isDenied, blockPage,
     isApi, isLocked
   };
 })();

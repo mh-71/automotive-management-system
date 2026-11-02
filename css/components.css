@@ -1532,3 +1532,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--amber); }
   .topbar__chevron { display: none; }
 }
 @media print { .profile-menu { display: none !important; } }
+
+/* Roles & Permissions (0018): a page the signed-in role may not open (js/app.js applyAccess). */
+.access-denied { max-width: 560px; margin: 48px auto; padding: 28px 24px; text-align: center; }
+.access-denied h2 { margin: 0 0 8px; font-size: 1.15rem; color: var(--text); }
+.access-denied p { margin: 0 0 18px; color: var(--text-2); font-size: .9rem; line-height: 1.5; }

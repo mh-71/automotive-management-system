@@ -62,7 +62,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AT = '2026-10-08T00:00:00Z';
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
-  '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql'];
+  '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0018_roles_permissions.sql'];
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -140,7 +140,7 @@ function fresh() {
 }
 
 const fields = (r) => Object.keys(r.body?.error?.fields ?? {}).sort();
-const NEW = (extra = {}) => ({ staffId: 'MEC-0001', username: 'jamal', role: 'Administrator', password: PW, ...extra });
+const NEW = (extra = {}) => ({ staffId: 'MEC-0001', username: 'jamal', role: 'Super Admin', password: PW, ...extra });
 
 console.log('=== User accounts (0009) against an in-memory database ===');
 
@@ -150,13 +150,13 @@ console.log('\n-- A. schema --');
   const h = fresh();
   check('user_accounts has the designed columns', h.DB.raw.prepare('PRAGMA table_info(user_accounts)').all().map((c) => c.name),
     ['id', 'mechanic_id', 'staff_id', 'username', 'role', 'status', 'password_hash', 'session_version', 'failed_logins',
-      'locked_until', 'last_login_at', 'password_changed_at', 'created_at', 'updated_at']);
-  check('two foreign keys: mechanics and staff, both ON DELETE CASCADE',
+      'locked_until', 'last_login_at', 'password_changed_at', 'created_at', 'updated_at', 'role_id']);
+  check('foreign keys: mechanics and staff (ON DELETE CASCADE), and the role (0018, RESTRICT)',
     h.DB.raw.prepare('PRAGMA foreign_key_list(user_accounts)').all().map((f) => `${f.from}->${f.table}.${f.to} ${f.on_delete}`).sort(),
-    ['mechanic_id->mechanics.id CASCADE', 'staff_id->staff.id CASCADE']);
-  check('indexes: username (any case), one per mechanic, one per staff member, status',
+    ['mechanic_id->mechanics.id CASCADE', 'role_id->roles.id RESTRICT', 'staff_id->staff.id CASCADE']);
+  check('indexes: username (any case), one per mechanic, one per staff member, status, role (0018)',
     h.DB.raw.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='user_accounts' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r) => r.name),
-    ['ix_accounts_status', 'ux_accounts_mechanic', 'ux_accounts_staff', 'ux_accounts_username']);
+    ['ix_accounts_status', 'ix_user_accounts_role', 'ux_accounts_mechanic', 'ux_accounts_staff', 'ux_accounts_username']);
   check('the USR counter starts at 0', h.one("SELECT prefix, last_value FROM id_counters WHERE collection='accounts'"), { prefix: 'USR', last_value: 0 });
   const ins = (id, m, s, u, hash = 'pbkdf2_sha256$1$a$b') => {
     try { h.DB.raw.prepare('INSERT INTO user_accounts (id, mechanic_id, staff_id, username, role, password_hash, password_changed_at, created_at) VALUES (?,?,?,?,?,?,?,?)').run(id, m, s, u, 'Administrator', hash, AT, AT); return 'ok'; }
@@ -194,22 +194,22 @@ console.log('\n-- B. authorization --');
   check('so may the machine token', (await h.api('GET', '/api/accounts')).status, 200);
 
   const made = await h.api('POST', '/api/accounts', NEW(), owner);
-  check('the passphrase holder creates an Administrator account', [made.status, made.body?.data?.id, made.body?.data?.role], [201, 'USR-0001', 'Administrator']);
+  check('the passphrase holder creates a Super Admin account', [made.status, made.body?.data?.id, made.body?.data?.role, made.body?.data?.roleId], [201, 'USR-0001', 'Super Admin', 'ROL-0001']);
   const admin = (await h.signIn('jamal')).cookie;
   check('an Administrator account may manage accounts too', (await h.api('GET', '/api/accounts', undefined, admin)).status, 200);
 
-  // An account with any other role (only possible by editing the database) is refused everything here.
+  // An account whose role has no User Accounts permission (Staff, 0018) is refused everything here.
   await h.api('POST', '/api/accounts', NEW({ staffId: 'STF-0001', username: 'nadia' }));
-  h.DB.raw.exec("UPDATE user_accounts SET role = 'Viewer' WHERE username = 'nadia'");
+  h.DB.raw.exec("UPDATE user_accounts SET role_id = 'ROL-0008' WHERE username = 'nadia'");
   const viewer = (await h.signIn('nadia')).cookie;
-  ok_('a non-administrator account can sign in (full access elsewhere is the API as it is today)', viewer.startsWith('taqwa_session=a1.'));
+  ok_('an account with a restricted role can sign in', viewer.startsWith('taqwa_session=a1.'));
   const denied = [];
   for (const [m, p, b] of [['GET', '/api/accounts'], ['GET', '/api/accounts/USR-0001'], ['POST', '/api/accounts', NEW({ staffId: 'MEC-0002', username: 'kamal' })],
-    ['PUT', '/api/accounts/USR-0002', { role: 'Administrator' }], ['POST', '/api/accounts/USR-0001/password', { password: 'Another-Password-1' }]]) {
+    ['PUT', '/api/accounts/USR-0002', { role: 'Super Admin' }], ['POST', '/api/accounts/USR-0001/password', { password: 'Another-Password-1' }]]) {
     denied.push((await h.api(m, p, b, viewer)).status);
   }
   check('...but is refused every account route (403): it cannot list, create, promote itself or reset an administrator', denied, [403, 403, 403, 403, 403]);
-  check('   ...and nothing changed', [h.one("SELECT role FROM user_accounts WHERE username='nadia'").role, h.one("SELECT count(*) AS n FROM user_accounts").n], ['Viewer', 2]);
+  check('   ...and nothing changed', [h.one("SELECT role_id FROM user_accounts WHERE username='nadia'").role_id, h.one("SELECT count(*) AS n FROM user_accounts").n], ['ROL-0008', 2]);
 }
 
 /* ---------- C. create ---------- */
@@ -236,9 +236,10 @@ console.log('\n-- C. create --');
   check('a staff id that does not exist, or is not a staff id at all', [
     fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'STF-0999', username: 'ghost' }))),
     fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'CUS-0001', username: 'ghost' })))], [['staffId'], ['staffId']]);
-  check('only the Administrator role is accepted (restricted roles are not enforced, so not offered)', [
-    fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'MEC-0002', username: 'kamal', role: 'Mechanic' }))),
-    fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'MEC-0002', username: 'kamal', role: 'administrator' })))], [['role'], ['role']]);
+  check('the role must exist: an unknown one, the retired name "Administrator", or none at all is refused', [
+    fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'MEC-0002', username: 'kamal', role: 'Owner' }))),
+    fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'MEC-0002', username: 'kamal', role: 'administrator' }))),
+    fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'MEC-0002', username: 'kamal', role: undefined })))], [['role'], ['role'], ['role']]);
   check('password rules: too short, containing the username, padded with spaces, missing', [
     fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'MEC-0002', username: 'kamal', password: 'short' }))),
     fields(await h.api('POST', '/api/accounts', NEW({ staffId: 'MEC-0002', username: 'kamal', password: 'kamal-is-my-name' }))),
@@ -268,12 +269,12 @@ console.log('\n-- D. list and detail --');
   const all = await h.api('GET', '/api/accounts');
   check('the list: every account, sorted by name, with its staff member', all.body.data.map((a) => [a.id, a.staffName, a.username, a.status]),
     [['USR-0001', 'Jamal Uddin', 'jamal', 'Active'], ['USR-0003', 'Kamal', 'kamal', 'Inactive'], ['USR-0002', 'Nadia Akter', 'nadia', 'Active']]);
-  check('   ...in one shape, with nothing secret', Object.keys(all.body.data[0]).sort(), ['createdAt', 'designation', 'id', 'isMechanic', 'lastLoginAt', 'locked', 'passwordChangedAt', 'role', 'self', 'staffId', 'staffName', 'staffStatus', 'status', 'username']);
+  check('   ...in one shape, with nothing secret', Object.keys(all.body.data[0]).sort(), ['createdAt', 'designation', 'id', 'isMechanic', 'lastLoginAt', 'locked', 'passwordChangedAt', 'role', 'roleId', 'self', 'staffId', 'staffName', 'staffStatus', 'status', 'username']);
   ok_('   ...no hash, session version or counter anywhere in the list', !SECRETS.test(all.text), all.text.slice(0, 200));
   const q = async (s) => (await h.api('GET', `/api/accounts?${s}`)).body.data.map((a) => a.id);
   check('search by name, staff id and username', [await q('q=nadia'), await q('q=mec-0002'), await q('q=JAM')], [['USR-0002'], ['USR-0003'], ['USR-0001']]);
-  check('filters: status and role', [await q('status=Inactive'), (await q('role=Administrator')).length], [['USR-0003'], 3]);
-  check('bad parameters: 400', [(await h.api('GET', '/api/accounts?status=Gone')).status, (await h.api('GET', '/api/accounts?role=Owner')).status, (await h.api('GET', '/api/accounts?limit=0')).status], [400, 400, 400]);
+  check('filters: status and role (by name, any case, or id)', [await q('status=Inactive'), (await q('role=super%20admin')).length, (await q('role=ROL-0001')).length, (await q('role=Mechanic')).length], [['USR-0003'], 3, 3, 0]);
+  check('bad parameters: 400', [(await h.api('GET', '/api/accounts?status=Gone')).status, (await h.api('GET', `/api/accounts?role=${'x'.repeat(41)}`)).status, (await h.api('GET', '/api/accounts?limit=0')).status], [400, 400, 400]);
   const one = await h.api('GET', '/api/accounts/USR-0002');
   check('detail: the account, nothing secret', [one.status, one.body.data.username, SECRETS.test(one.text)], [200, 'nadia', false]);
   check('detail: unknown 404, malformed id 400', [(await h.api('GET', '/api/accounts/USR-0404')).status, (await h.api('GET', '/api/accounts/STF-0001')).status], [404, 400]);
@@ -289,7 +290,8 @@ console.log('\n-- E. sign-in --');
   check('username (any case) + password -> 204 with an account session cookie', [s.status, s.cookie.startsWith('taqwa_session=a1.')], [204, true]);
   check('   ...which the gate accepts for business data', (await h.api('GET', '/api/customers', undefined, s.cookie)).status, 200);
   const who = await h.api('GET', '/api/session', undefined, s.cookie);
-  check('   ...and GET /api/session says whose session it is (id, username, role only)', who.body.data, { authenticated: true, passphrase: true, accounts: true, account: { id: 'USR-0001', username: 'jamal', role: 'Administrator' } });
+  check('   ...and GET /api/session says whose session it is (id, username, role only)', who.body.data.account, { id: 'USR-0001', username: 'jamal', role: 'Super Admin', roleId: 'ROL-0001' });
+  check('   ...and what it may do (0018, for display): full access', [who.body.data.fullAccess, who.body.data.permissions.includes('roles.edit')], [true, true]);
   ok_('   ...the last sign-in is recorded', !!h.one("SELECT last_login_at FROM user_accounts WHERE id='USR-0001'").last_login_at);
   const ownerWho = await h.api('GET', '/api/session', undefined, await h.passphraseCookie());
   ok_('a passphrase session names nobody', ownerWho.body.data.authenticated === true && !('account' in ownerWho.body.data));

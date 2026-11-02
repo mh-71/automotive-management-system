@@ -47,7 +47,7 @@
         <h2 class="wt-head__title">Tools &amp; Equipment</h2>
         <p class="page-subtitle">Register and track every tool and piece of workshop equipment: where it is, its condition and whether it can be used.</p>
       </div>
-      <button type="button" class="btn btn--primary wt-add" id="wtAdd" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg><span>Add New Tool</span></button>
+      <button type="button" class="btn btn--primary wt-add" id="wtAdd" data-requires="tools.create" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg><span>Add New Tool</span></button>
     </div>
 
     <section class="wt-stats" aria-label="Tool summary" aria-live="polite">
@@ -114,7 +114,7 @@
         </select>
         <div class="wt-toolbar__end">
           <button type="button" class="btn btn--ghost wt-btn" id="wtClear" hidden>Clear filters</button>
-          <button type="button" class="btn btn--ghost wt-btn" id="wtExport" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span>Export CSV</span></button>
+          <button type="button" class="btn btn--ghost wt-btn" id="wtExport" data-requires="tools.export" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span>Export CSV</span></button>
         </div>
       </div>
 

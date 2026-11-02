@@ -20,9 +20,12 @@
    cleared from the field. They are never shown, logged or stored, and the
    API never returns a password, a hash or a session value.
 
-   Roles: every account has full access ('Administrator'), because nothing
-   in the API restricts a signed-in caller. Restricted roles arrive with
-   Roles & Permissions; the role list comes from the Worker.
+   Roles (0018): each account has one role from Roles & Permissions
+   (GET /api/roles). The create form offers only the roles this user may
+   give -- active, and within their own permissions (the Worker decides,
+   `canManage`) -- and the Worker checks the same again on every request.
+   Changing an existing account's role is done on the Roles & Permissions
+   page.
    ============================================================ */
 
 const StaffAccounts = (() => {
@@ -35,9 +38,17 @@ const StaffAccounts = (() => {
   const PASSWORD_MAX = 128;
   const STATUSES = ['Active', 'Inactive'];
   const COLS = 7;
-  // The roles the Worker accepts (src/lib/accounts.js ACCOUNT_ROLES): full access only, until
-  // Roles & Permissions enforces anything narrower.
-  const roles = ['Administrator'];
+  // The workshop's roles, from GET /api/roles: { id, name, status, assignable }.
+  const roles = [];
+  const roleNames = () => roles.map(r => r.name);
+  const assignableRoles = () => roles.filter(r => r.assignable);
+  /** Fill `roles` from the Worker's list; `assignable` = this user may give it (active, within reach). */
+  function setRoles(list, mayAssign) {
+    roles.length = 0;
+    for (const r of Array.isArray(list) ? list : []) {
+      roles.push({ id: r.id, name: r.name, status: r.status, assignable: !!mayAssign && r.status === 'Active' && r.canManage === true });
+    }
+  }
 
   const svg = d => `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="${d}"/></svg>`;
   const ICON = {
@@ -103,7 +114,7 @@ const StaffAccounts = (() => {
     const e = {};
     if (!/^(MEC|STF)-\d{4,}$/.test(String(v.staffId || ''))) e.staffId = 'Choose a staff member.';
     if (!USERNAME.test(String(v.username || ''))) e.username = 'Use 3-32 lower-case letters, digits, dots, dashes or underscores.';
-    if (!roles.includes(v.role)) e.role = 'Choose a role.';
+    if (!assignableRoles().some(r => r.name === v.role)) e.role = 'Choose a role.';
     const p = passwordProblem(v.password, v.username);
     if (p) e.password = p;
     else if (v.confirm !== v.password) e.confirm = 'The two passwords do not match.';
@@ -214,8 +225,9 @@ const StaffAccounts = (() => {
   function fillRoles() {
     const el = $('uacRole');
     if (!el) return;
-    if (!roles.includes(state.role)) state.role = 'all';
-    el.innerHTML = '<option value="all">All roles</option>' + roles.map(r => `<option value="${esc(r)}"${r === state.role ? ' selected' : ''}>${esc(r)}</option>`).join('');
+    const names = [...new Set([...roleNames(), ...accounts().map(a => a.role).filter(Boolean)])];
+    if (!names.includes(state.role)) state.role = 'all';
+    el.innerHTML = '<option value="all">All roles</option>' + names.map(r => `<option value="${esc(r)}"${r === state.role ? ' selected' : ''}>${esc(r)}</option>`).join('');
     el.value = state.role;
   }
 
@@ -251,8 +263,8 @@ const StaffAccounts = (() => {
       setBody(stateRow({ icon: ICON.alert, tone: 'bad', title: 'Your session has ended', signIn: true,
         text: 'Sign in again to manage user accounts. Nothing was changed.' }));
     } else if (code === 'forbidden') {
-      setBody(stateRow({ icon: ICON.alert, tone: 'bad', title: 'Only an administrator can manage user accounts',
-        text: 'Your account is not allowed to see or change user accounts.' }));
+      setBody(stateRow({ icon: ICON.alert, tone: 'bad', title: 'Your role does not include User Accounts',
+        text: 'Ask an administrator if you need to see or change user accounts.' }));
     } else {
       setBody(stateRow({ icon: ICON.alert, tone: 'bad', title: 'The accounts could not be loaded', retry: true,
         text: 'The workshop database did not answer, so no accounts are shown. Try again in a moment.' }));
@@ -264,9 +276,12 @@ const StaffAccounts = (() => {
     setControls(false);
     note('Loading accounts…');
     setBody(skeletonRows(), true);
-    const [acc, st] = await Promise.all([Storage.load('accounts'), Storage.load('staff')]);
+    const [acc, st, rl] = await Promise.all([Storage.load('accounts'), Storage.load('staff'),
+      Storage.can('roles.view') ? Storage.load('roles') : Promise.resolve({ ok: true })]);
     if (!acc.ok) { renderUnavailable(acc.code); return false; }
     if (!st.ok) { renderUnavailable(st.code); return false; }
+    // Without the role list nobody can be given a role here; the accounts still show.
+    setRoles(rl.ok ? Storage.getData('roles') : [], Storage.can('roles.manage'));
     state.loaded = true;
     setControls(true);
     fillRoles();
@@ -342,8 +357,8 @@ const StaffAccounts = (() => {
             ${field({ id: 'ua-staff', label: 'Staff member', required: true, err: 'staffId', html: `<select class="select" id="ua-staff" name="staffId" required aria-required="true" aria-describedby="ua-staff-err"><option value="">Choose a staff member</option>${options}</select>` })}
             ${field({ id: 'ua-username', label: 'Username', required: true, err: 'username', hint: '3-32 lower-case letters, digits, dots, dashes or underscores. Used to sign in.',
               html: `<input class="input" type="text" id="ua-username" name="username" maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-required="true" aria-describedby="ua-username-hint ua-username-err">` })}
-            ${field({ id: 'ua-role', label: 'Role', required: true, err: 'role', hint: 'Full access. Restricted roles need Roles & Permissions first.',
-              html: `<select class="select" id="ua-role" name="role" aria-describedby="ua-role-hint ua-role-err">${roles.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select>` })}
+            ${field({ id: 'ua-role', label: 'Role', required: true, err: 'role', hint: 'What this person may do. Only roles you may give are listed (Roles & Permissions).',
+              html: `<select class="select" id="ua-role" name="role" aria-describedby="ua-role-hint ua-role-err"><option value="">Choose a role</option>${assignableRoles().map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('')}</select>` })}
             ${field({ id: 'ua-password', label: 'Password', required: true, err: 'password', hint: `At least ${PASSWORD_MIN} characters, not containing the username. Give it to the person privately.`, html: pwInput('ua-password', 'password', 'new-password') })}
             ${field({ id: 'ua-confirm', label: 'Repeat password', required: true, err: 'confirm', hint: 'Type the same password again.', html: pwInput('ua-confirm', 'confirm', 'new-password') })}
           </div>
@@ -518,7 +533,7 @@ const StaffAccounts = (() => {
   Storage.ready(start);
 
   return {
-    USERNAME, PASSWORD_MIN, PASSWORD_MAX, ROLES: roles,
+    USERNAME, PASSWORD_MIN, PASSWORD_MAX, ROLES: roles, setRoles,
     matchesSearch, filterAccounts, eligibleStaff, summary, suggestUsername, passwordProblem, validateCreate, rowHtml,
     load, renderList, clearFilters, state,
   };

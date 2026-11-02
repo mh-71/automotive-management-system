@@ -53,7 +53,7 @@ if (!DatabaseSync) {
 }
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const MIGRATIONS = readdirSync(join(ROOT, 'migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f) && f.slice(0, 4) <= '0017').sort();
+const MIGRATIONS = readdirSync(join(ROOT, 'migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f) && f.slice(0, 4) <= '0018').sort();
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -135,7 +135,7 @@ function fresh() {
   const count = () => one('SELECT count(*) AS n FROM notifications').n;
   const last = () => one('SELECT * FROM notifications ORDER BY id DESC LIMIT 1');
   const accountCookie = async (staffId, username) => {
-    await api('POST', '/api/accounts', { staffId, username, role: 'Administrator', password: PW });
+    await api('POST', '/api/accounts', { staffId, username, role: 'Super Admin', password: PW });
     return (await api('POST', '/api/session', { username, password: PW }, 'none')).cookie;
   };
   return { DB, env, ctx, pending, api, one, all, count, last, accountCookie };
@@ -302,7 +302,7 @@ console.log('\n-- C. real events --');
   await h.api('POST', `/api/leave-requests/${leave2.body.data.id}/reject`, { expectedUpdatedAt: leave2.body.data.updatedAt, note: 'Busy week' });
   check('   ...a decision for staff without an account raises nothing (no one to tell)', h.count(), c2);
   h.DB.raw.exec(`INSERT INTO staff (id, mechanic_id, designation, department, created_at) VALUES ('MEC-0001', 'MEC-0001', 'Mechanic', 'Workshop', '${AT}')`);
-  await h.api('POST', '/api/accounts', { staffId: 'MEC-0001', username: 'testmech', role: 'Administrator', password: PW });
+  await h.api('POST', '/api/accounts', { staffId: 'MEC-0001', username: 'testmech', role: 'Super Admin', password: PW });
   const mechId = h.one("SELECT id FROM user_accounts WHERE username = 'testmech'").id;
   const leave3 = await h.api('POST', '/api/leave-requests', { staffId: 'MEC-0001', leaveType: 'Sick', startDate: day(7), endDate: day(7), reason: 'Test reason' });
   await h.api('POST', `/api/leave-requests/${leave3.body.data.id}/reject`, { expectedUpdatedAt: leave3.body.data.updatedAt, note: 'Test note' });

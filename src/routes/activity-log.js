@@ -21,6 +21,7 @@
 import { ok, fail, methodNotAllowed, noDatabase, readIntParam } from '../lib/http.js';
 import { readDate, todayInDhaka } from '../lib/write.js';
 import { principalOf } from '../lib/auth.js';
+import { can } from '../lib/permissions.js';
 
 export const ACTIVITY_MODULES = ['staff', 'accounts', 'attendance', 'leave'];
 export const ACTIVITY_ACTIONS = ['create', 'update', 'password', 'approve', 'reject'];
@@ -28,13 +29,9 @@ const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
 const Q_MAX = 100;
 
-/** May this caller read the log? Only an administrator (as for /api/accounts). */
-function isAdmin(who) {
-  if (!who) return false;
-  if (who.kind === 'token' || who.kind === 'passphrase') return true;
-  return who.kind === 'account' && who.role === 'Administrator';
-}
-const forbidden = () => fail('forbidden', 'Only an administrator can read the activity log.', 403);
+/** May this caller read the log? A role with Activity Log: view (0018); the router checks it first. */
+const isAdmin = (who) => can(who, 'activity_log.view');
+const forbidden = () => fail('forbidden', 'Your role cannot read the activity log.', 403);
 
 function toEntry(row) {
   return {

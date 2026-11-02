@@ -24,6 +24,7 @@
  */
 
 import { principalOf } from './auth.js';
+import { can, hasFullAccess, NOTIFICATION_RECORD_PERMISSIONS } from './permissions.js';
 import { nowIso, todayInDhaka } from './write.js';
 
 export const CATEGORIES = ['Enquiry', 'Customer', 'Appointment', 'Workshop', 'Finance', 'Inventory', 'Follow-up', 'Staff'];
@@ -39,11 +40,26 @@ export function readerOf(request) {
   const p = principalOf(request);
   if (!p) return null;
   if (p.kind === 'account' && typeof p.id === 'string' && p.id.startsWith('USR-')) {
-    return { reader: `account:${p.id}`, accountId: p.id };
+    return { reader: `account:${p.id}`, accountId: p.id, visible: visibleSql(p) };
   }
-  if (p.kind === 'passphrase') return { reader: 'passphrase', accountId: null };
-  if (p.kind === 'token') return { reader: 'token', accountId: null };
+  if (p.kind === 'passphrase') return { reader: 'passphrase', accountId: null, visible: visibleSql(p) };
+  if (p.kind === 'token') return { reader: 'token', accountId: null, visible: visibleSql(p) };
   return null;
+}
+
+/**
+ * Which notifications a caller may see, as SQL on the alias `n` (bound ?2 =
+ * the caller's account id): their own personal ones, and shared ones about a
+ * kind of record their role may view (0018) -- a Mechanic is not shown
+ * "Payment received". The record types are fixed server-side constants.
+ */
+export function visibleSql(who) {
+  const mine = 'n.recipient_account_id = ?2';
+  if (hasFullAccess(who)) return `(n.recipient_account_id IS NULL OR ${mine})`;
+  const types = Object.entries(NOTIFICATION_RECORD_PERMISSIONS).filter(([, perm]) => can(who, perm)).map(([type]) => `'${type}'`);
+  return types.length
+    ? `(${mine} OR (n.recipient_account_id IS NULL AND n.record_type IN (${types.join(', ')})))`
+    : `(${mine})`;
 }
 
 function actorName(request) {

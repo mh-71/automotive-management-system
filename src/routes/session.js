@@ -27,6 +27,7 @@ import {
   authConfig, issueSessionCookie, issueAccountSessionCookie, clearSessionCookie, passphraseMatches, currentSession,
 } from '../lib/auth.js';
 import { checkAccountSignIn } from '../lib/accounts.js';
+import { hasFullAccess, permissionsOf } from '../lib/permissions.js';
 
 /** 204: there is nothing to say, and a body would only be a place to leak. */
 function noContent(cookie) {
@@ -111,7 +112,11 @@ async function readSession(request, env) {
       accounts: config.sessions && Boolean(env && env.DB),
       // Who is signed in -- only for an account session, and only the
       // account's own id, username and role.
-      ...(who && who.kind === 'account' ? { account: { id: who.id, username: who.username, role: who.role } } : {}),
+      ...(who && who.kind === 'account' ? { account: { id: who.id, username: who.username, role: who.role, roleId: who.roleId } } : {}),
+      // What the signed-in caller may do (0018), so the app can show only
+      // what will work. For display only: the server checks every request
+      // itself and never reads this back.
+      ...(who ? { fullAccess: hasFullAccess(who), permissions: permissionsOf(who) } : {}),
     },
     {},
     200
