@@ -1,0 +1,304 @@
+/* ============================================================
+   offline.js — the encrypted, read-only offline copy (Phase 1)
+   ------------------------------------------------------------
+   When this computer cannot reach the server, the CRM can still
+   open the business data it last saw -- READ-ONLY, for a person
+   who signed in here online before, with their own password.
+
+   WHAT IS STORED (IndexedDB "taqwa-offline", this browser only)
+     meta       the device: a random UUID made once per browser.
+     users      one row per person who signed in here online:
+                their account id, name, role, the identifiers they
+                may type (username / Staff ID / e-mail they used),
+                an RSA-OAEP public key, and the matching PRIVATE key
+                ENCRYPTED with a key derived from their password
+                (PBKDF2-SHA-256, 310,000 rounds, random salt).
+     snapshots  one row per person: the collections and settings
+                their role could read at the last online page load,
+                encrypted with a fresh AES-256-GCM key that is itself
+                sealed with that person's public key.
+
+   WHY THIS SHAPE
+     - Online, every page load can refresh the copy WITHOUT any
+       secret on hand: sealing needs only the public key.
+     - Offline, opening it needs the password: it unlocks the
+       private key, which unseals the copy. A wrong password simply
+       fails to decrypt (AES-GCM is authenticated); no password,
+       hash or reusable server token is ever stored.
+     - Each person's copy holds only what their role could read.
+     - A copy older than OFFLINE_DAYS (7) will not open: offline
+       access needs regular online contact. Account deactivation
+       and permission changes take effect the next time this
+       computer is online (the server decides then); while it stays
+       fully offline they cannot reach it -- see OFFLINE_SYSTEM.md.
+
+   NOT IN PHASE 1: saving changes offline. The copy is read-only;
+   every write is refused with a plain message until the server is
+   reachable. Offline writes need the sync design in OFFLINE_SYSTEM.md.
+   ============================================================ */
+
+const Offline = (() => {
+
+  const DB_NAME = 'taqwa-offline';
+  const DB_VERSION = 1;
+  const SNAPSHOT_SCHEMA = 1;
+  const PBKDF2_ITERATIONS = 310000;
+  const OFFLINE_DAYS = 7;
+  const DAY_MS = 86400000;
+
+  const subtle = () => (typeof crypto !== 'undefined' && crypto.subtle) || null;
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const b64 = (buf) => { let s = ''; const v = new Uint8Array(buf); for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]); return btoa(s); };
+  const unb64 = (str) => Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
+  const random = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+  /* ---------- storage: IndexedDB in the browser, any { get, put, del, all } in tests ---------- */
+
+  function idbStore() {
+    let opening = null;
+    const open = () => opening || (opening = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      // Versioned schema: each version adds what it needs, never drops data.
+      req.onupgradeneeded = (e) => {
+        const db = req.result;
+        if (e.oldVersion < 1) {
+          db.createObjectStore('meta', { keyPath: 'key' });
+          db.createObjectStore('users', { keyPath: 'accountId' });
+          db.createObjectStore('snapshots', { keyPath: 'accountId' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error('The offline store is open in another tab with an older version.'));
+    }));
+    const tx = async (store, mode, fn) => {
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        const t = db.transaction(store, mode);
+        const req = fn(t.objectStore(store));
+        t.oncomplete = () => resolve(req && 'result' in req ? req.result : undefined);
+        t.onerror = () => reject(t.error);
+        t.onabort = () => reject(t.error || new Error('Offline store transaction aborted.'));
+      });
+    };
+    return {
+      get: (store, key) => tx(store, 'readonly', (s) => s.get(key)),
+      put: (store, value) => tx(store, 'readwrite', (s) => s.put(value)),
+      del: (store, key) => tx(store, 'readwrite', (s) => s.delete(key)),
+      all: (store) => tx(store, 'readonly', (s) => s.getAll()),
+      clear: (store) => tx(store, 'readwrite', (s) => s.clear()),
+    };
+  }
+
+  /** An in-memory store with the same shape (tests, or a browser without IndexedDB). */
+  function memoryStore() {
+    const data = { meta: new Map(), users: new Map(), snapshots: new Map() };
+    const keyOf = { meta: 'key', users: 'accountId', snapshots: 'accountId' };
+    const copy = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+    return {
+      get: async (s, k) => copy(data[s].get(k)),
+      put: async (s, v) => { data[s].set(v[keyOf[s]], copy(v)); },
+      del: async (s, k) => { data[s].delete(k); },
+      all: async (s) => [...data[s].values()].map(copy),
+      clear: async (s) => { data[s].clear(); },
+    };
+  }
+
+  let store = null;
+  const db = () => store || (store = (typeof indexedDB !== 'undefined' ? idbStore() : memoryStore()));
+  /** Use another store (tests). */
+  function useStore(s) { store = s; }
+
+  /** Is the offline copy possible in this browser at all? */
+  const supported = () => !!(subtle() && typeof indexedDB !== 'undefined' && typeof crypto.getRandomValues === 'function');
+
+  /* ---------- the device ---------- */
+
+  async function deviceId() {
+    const row = await db().get('meta', 'device');
+    if (row && row.deviceId) return row.deviceId;
+    const id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
+      : [...random(16)].map((b, i) => (i === 6 ? (b & 15) | 64 : i === 8 ? (b & 63) | 128 : b).toString(16).padStart(2, '0')).join('').replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-');
+    await db().put('meta', { key: 'device', deviceId: id, createdAt: new Date().toISOString() });
+    return id;
+  }
+
+  /* ---------- identifiers (the same rules as the server's sign-in) ---------- */
+
+  function normalise(raw) {
+    const v = String(raw || '').trim();
+    if (!v) return '';
+    if (v.includes('@')) return v.toLowerCase();
+    if (/^(mec|stf)-\d{4,}$/i.test(v)) return v.toUpperCase();
+    return v.toLowerCase();
+  }
+
+  /* ---------- keys ---------- */
+
+  async function passwordKey(password, salt, iterations) {
+    const base = await subtle().importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+    return subtle().deriveKey({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, base,
+      { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']);
+  }
+
+  /** The person's private key, if this password opens it; null otherwise. */
+  async function openPrivateKey(user, password) {
+    try {
+      const kek = await passwordKey(password, unb64(user.salt), user.iterations);
+      return await subtle().unwrapKey('pkcs8', unb64(user.wrappedPrivateKey), kek, { name: 'AES-GCM', iv: unb64(user.privIv) },
+        { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['unwrapKey']);
+    } catch (e) {
+      return null;   // wrong password (the AES-GCM tag does not verify) -- or a damaged record
+    }
+  }
+
+  /**
+   * Enrol this person on this computer, or refresh their entry. Called right
+   * after a successful ONLINE sign-in (or own-password change), while the
+   * password is in hand -- it is used here and never kept.
+   */
+  async function enroll(account, password, typedIdentifier) {
+    if (!account || !account.id || typeof password !== 'string' || !password) return false;
+    const existing = await db().get('users', account.id);
+    const identifiers = [...new Set([account.username, account.staffId, typedIdentifier].map(normalise).filter(Boolean)
+      .concat(existing ? existing.identifiers : []))];
+    const base = {
+      accountId: account.id, username: account.username || '', name: account.name || account.username || '',
+      staffId: account.staffId || '', role: account.role || '', identifiers, lastOnlineAt: new Date().toISOString(),
+    };
+    // Same password as before: keep the key pair (the saved copy stays readable).
+    if (existing && await openPrivateKey(existing, password)) {
+      await db().put('users', { ...existing, ...base });
+      return true;
+    }
+    const pair = await subtle().generateKey({ name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      true, ['wrapKey', 'unwrapKey']);
+    const salt = random(16);
+    const iv = random(12);
+    const kek = await passwordKey(password, salt, PBKDF2_ITERATIONS);
+    const wrapped = await subtle().wrapKey('pkcs8', pair.privateKey, kek, { name: 'AES-GCM', iv });
+    const spki = await subtle().exportKey('spki', pair.publicKey);
+    await db().put('users', { ...base, salt: b64(salt), iterations: PBKDF2_ITERATIONS, privIv: b64(iv), wrappedPrivateKey: b64(wrapped),
+      publicKey: b64(spki), enrolledAt: new Date().toISOString() });
+    // A new key pair: any older copy could no longer be opened, so it goes.
+    await db().del('snapshots', account.id);
+    return true;
+  }
+
+  /* ---------- the copy ---------- */
+
+  /**
+   * Seal and save what this person's role could read, online. Needs no
+   * secret: only their public key. Returns false when they are not enrolled
+   * on this computer (they have not signed in here with a password yet).
+   */
+  async function saveSnapshot(accountId, payload) {
+    const user = accountId && await db().get('users', accountId);
+    if (!user) return false;
+    const publicKey = await subtle().importKey('spki', unb64(user.publicKey), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['wrapKey']);
+    const key = await subtle().generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    const iv = random(12);
+    const savedAt = new Date().toISOString();
+    const plain = enc.encode(JSON.stringify({ schema: SNAPSHOT_SCHEMA, accountId, savedAt, ...payload }));
+    const ciphertext = await subtle().encrypt({ name: 'AES-GCM', iv }, key, plain);
+    const wrappedKey = await subtle().wrapKey('raw', key, publicKey, { name: 'RSA-OAEP' });
+    await db().put('snapshots', { accountId, savedAt, schema: SNAPSHOT_SCHEMA, iv: b64(iv), ciphertext: b64(ciphertext), wrappedKey: b64(wrappedKey), size: plain.length });
+    await db().put('users', { ...user, lastOnlineAt: savedAt });
+    return true;
+  }
+
+  /**
+   * Open the copy, offline: { ok, data } or { ok: false, code, message }.
+   * Every "wrong identifier" and "wrong password" answer is the same.
+   */
+  async function unlock(identifier, password, now = Date.now()) {
+    const wrong = { ok: false, code: 'unauthorized', message: 'The sign-in details are not correct, or this person has not signed in on this computer before.' };
+    const id = normalise(identifier);
+    if (!id || typeof password !== 'string' || !password) return wrong;
+    const users = (await db().all('users')).filter((u) => u.identifiers.includes(id));
+    if (users.length !== 1) return wrong;
+    const user = users[0];
+    const privateKey = await openPrivateKey(user, password);
+    if (!privateKey) return wrong;
+    const snap = await db().get('snapshots', user.accountId);
+    if (!snap) return { ok: false, code: 'no_copy', message: 'There is no saved copy for you on this computer yet. Sign in once while online, then try again.' };
+    let key;
+    try {
+      key = await subtle().unwrapKey('raw', unb64(snap.wrappedKey), privateKey, { name: 'RSA-OAEP' }, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+    } catch (e) {
+      return DAMAGED;
+    }
+    const opened = await openSnapshot(user, snap, key, now);
+    if (!opened.ok) return opened;
+    // The copy's own key, for this browser TAB only (sessionStorage), so moving
+    // between pages does not ask for the password every time. It opens only this
+    // copy, ends with the tab, and stops working when a newer copy is saved.
+    return { ...opened, sessionKey: b64(await subtle().exportKey('raw', key)) };
+  }
+
+  const DAMAGED = { ok: false, code: 'damaged', message: 'The saved copy on this computer could not be read. Sign in online to refresh it.' };
+
+  async function openSnapshot(user, snap, key, now) {
+    let data;
+    try {
+      const plain = await subtle().decrypt({ name: 'AES-GCM', iv: unb64(snap.iv) }, key, unb64(snap.ciphertext));
+      data = JSON.parse(dec.decode(plain));
+    } catch (e) {
+      return DAMAGED;
+    }
+    // The age comes from INSIDE the authenticated copy, so it cannot be extended by editing the store.
+    if (data.schema !== SNAPSHOT_SCHEMA || data.accountId !== user.accountId) return DAMAGED;
+    const age = now - Date.parse(data.savedAt);
+    if (!(age >= 0) || age > OFFLINE_DAYS * DAY_MS) {
+      return { ok: false, code: 'expired', message: `Your saved copy is more than ${OFFLINE_DAYS} days old. Connect to the internet and sign in to refresh it.` };
+    }
+    return { ok: true, data, user: { accountId: user.accountId, username: user.username, name: user.name, staffId: user.staffId, role: user.role } };
+  }
+
+  /** Open the copy again on the next page of the same tab, with the key unlock() gave. */
+  async function openWithSession(accountId, sessionKey, now = Date.now()) {
+    try {
+      const user = await db().get('users', accountId);
+      const snap = await db().get('snapshots', accountId);
+      if (!user || !snap || typeof sessionKey !== 'string') return DAMAGED;
+      const key = await subtle().importKey('raw', unb64(sessionKey), { name: 'AES-GCM' }, false, ['decrypt']);
+      return await openSnapshot(user, snap, key, now);
+    } catch (e) {
+      return DAMAGED;
+    }
+  }
+
+  /* ---------- what is on this computer ---------- */
+
+  /** People who can open a copy here, without anything secret: name, role, when last online, copy size. */
+  async function status() {
+    const [users, snaps] = await Promise.all([db().all('users'), db().all('snapshots')]);
+    const byId = new Map(snaps.map((s) => [s.accountId, s]));
+    return users.map((u) => ({
+      accountId: u.accountId, name: u.name, username: u.username, role: u.role, lastOnlineAt: u.lastOnlineAt,
+      savedAt: byId.get(u.accountId)?.savedAt || null, size: byId.get(u.accountId)?.size || 0,
+    }));
+  }
+
+  /** Is there any copy that could be opened on this computer? */
+  async function hasCopies() {
+    try { return (await db().all('snapshots')).length > 0; } catch (e) { return false; }
+  }
+
+  /** Remove one person's entry and copy from this computer. */
+  async function forget(accountId) {
+    await db().del('snapshots', accountId);
+    await db().del('users', accountId);
+  }
+
+  /** Remove every copy and entry from this computer (the device id stays). */
+  async function forgetAll() {
+    await db().clear('snapshots');
+    await db().clear('users');
+  }
+
+  return { OFFLINE_DAYS, PBKDF2_ITERATIONS, supported, useStore, memoryStore, deviceId, normalise, enroll, saveSnapshot, unlock, openWithSession, status, hasCopies, forget, forgetAll };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { Offline };

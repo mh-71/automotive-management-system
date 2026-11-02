@@ -55,6 +55,7 @@ const Api = (() => {
   const DEFAULT_TIMEOUT_MS = 15000;
 
   let baseUrl;            // undefined = not resolved yet, null = no API reachable
+  let sameOrigin = false; // the API is this page's own origin (set by detectBase)
   let token = null;       // runtime only -- never read from or written to storage
   let timeoutMs = DEFAULT_TIMEOUT_MS;
 
@@ -72,6 +73,8 @@ const Api = (() => {
     // A file:// page has origin "null" as a string; there is nothing to call.
     const origin = typeof location !== 'undefined' ? location.origin : '';
     if (!origin || origin === 'null' || !/^https?:/.test(origin)) return null;
+    // The app and its API share this origin: the real deployment (and wrangler dev).
+    sameOrigin = true;
     return `${origin}/api`;
   }
 
@@ -331,7 +334,9 @@ const Api = (() => {
 
   return { configure, hasToken, request, get, post, put, delete: del, probe,
            login, loginAccount, loginIdentifier, changePassword, logout, session,
-           get baseUrl() { return base(); } };
+           get baseUrl() { return base(); },
+           /** Is the API this page's own origin -- the deployed app, not a cross-origin dev setup? */
+           get sameOrigin() { base(); return sameOrigin; } };
 })();
 
 /* Node's test harness loads this file as a script; the browser does not. */

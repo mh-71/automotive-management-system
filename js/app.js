@@ -149,6 +149,7 @@ const App = (() => {
     'inbox-facebook': 'Facebook Messenger',
     'inbox-website-forms': 'Website Forms',
     notifications: 'Notifications Center',
+    'offline-sync': 'Offline & Sync',
     'equipment-inventory': 'Equipment Inventory', 'maintenance-repairs': 'Maintenance & Repairs',
     'asset-assignment': 'Asset Assignment', 'asset-history': 'Asset History', 'asset-reports': 'Asset Reports'
   };
@@ -329,8 +330,11 @@ const App = (() => {
           return;
         }
         // To the dashboard -- or, for a password someone else set, to choosing a new one first.
-        if (res.passwordChange) location.reload();
-        else location.href = `${root}index.html`;
+        if (res.passwordChange) { location.reload(); return; }
+        // Let this person open a read-only copy on this computer when it is offline
+        // (js/offline.js). The password is used to protect that copy, then dropped.
+        await Storage.enrollOffline(pw, id);
+        location.href = `${root}index.html`;
         return;
       }
       if (!phrase.value) { setErr('gate-passphrase', 'Enter the passphrase.'); phrase.focus(); return; }
@@ -346,6 +350,86 @@ const App = (() => {
       }
       location.href = `${root}index.html`;
     });
+  }
+
+  /**
+   * Offline (Phase 1): the server cannot be reached. Someone who signed in on
+   * this computer while online can open the read-only copy saved here, with
+   * the same identifier and password. Nothing typed is kept.
+   */
+  function renderOfflineUnlock(hydration) {
+    const root = document.body.dataset.root || '';
+    const gate = document.createElement('div');
+    gate.className = 'app-gate';
+    const copies = hydration && hydration.hasCopies;
+    gate.innerHTML = `
+      <div class="login">
+        <img class="login__logo" src="${root}assets/logo/logo-white.png" alt="Taqwa Automobile">
+        <form class="card app-gate__card login__card" id="offlineForm" novalidate aria-labelledby="offTitle">
+          <div class="login__head">
+            <span class="badge badge--warn login__badge">No internet</span>
+            <h1 class="login__title" id="offTitle">Taqwa Autos CRM</h1>
+            <p class="login__subtitle">${copies
+              ? 'The server cannot be reached. Sign in to open the <strong>read-only</strong> copy saved on this computer. Changes can be made again when the internet is back.'
+              : 'The server cannot be reached, and this computer has no saved offline copy yet. Connect to the internet and sign in once; after that, a read-only copy is kept here for offline use.'}</p>
+          </div>
+          ${copies ? `
+          <div class="field">
+            <label for="off-id">Username / Email / Staff ID</label>
+            <input class="input" type="text" id="off-id" placeholder="Enter username, email or staff ID" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="160" aria-describedby="off-id-err">
+            <span class="field__error" id="off-id-err"></span>
+          </div>
+          ${passwordField('off-pw', 'Password', 'Enter password', 'current-password')}
+          <p class="login__error" id="offError" role="alert"></p>
+          <button class="btn btn--primary login__submit" type="submit" data-open>Open offline copy</button>` : ''}
+          <button class="btn btn--ghost login__submit" type="button" data-retry>Try the internet again</button>
+        </form>
+      </div>`;
+    document.body.appendChild(gate);
+    bindEyes(gate);
+    gate.querySelector('[data-retry]').addEventListener('click', () => location.reload());
+    if (!copies) return;
+    const form = gate.querySelector('#offlineForm');
+    const idIn = gate.querySelector('#off-id'), pwIn = gate.querySelector('#off-pw');
+    const btn = gate.querySelector('[data-open]'), error = gate.querySelector('#offError');
+    idIn.focus();
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      if (btn.disabled) return;
+      gate.querySelector('#off-id-err').textContent = ''; gate.querySelector('#off-pw-err').textContent = ''; error.textContent = '';
+      const id = idIn.value.trim(), pw = pwIn.value;
+      if (!id) { gate.querySelector('#off-id-err').textContent = 'Enter your username, email or staff ID.'; idIn.focus(); return; }
+      if (!pw) { gate.querySelector('#off-pw-err').textContent = 'Enter your password.'; pwIn.focus(); return; }
+      btn.disabled = true; btn.textContent = 'Opening…';
+      const res = await Storage.unlockOffline(id, pw);
+      pwIn.value = '';
+      if (!res.ok) { btn.disabled = false; btn.textContent = 'Open offline copy'; error.textContent = res.message; pwIn.focus(); return; }
+      location.reload();
+    });
+  }
+
+  /** Offline: a bar saying so, and -- once the server answers again -- an offer to go back online. */
+  function showOfflineBar() {
+    const content = document.getElementById('content') || document.querySelector('main');
+    if (!content || document.getElementById('offlineBar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'offlineBar';
+    bar.className = 'offline-bar';
+    bar.setAttribute('role', 'status');
+    const at = Storage.offlineSavedAt ? new Date(Storage.offlineSavedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    bar.innerHTML = `<strong>Offline.</strong> You are viewing a read-only copy saved on this computer${at ? ` (${Utils.esc(at)})` : ''}. Nothing can be changed until the internet is back.`;
+    content.prepend(bar);
+    const back = async () => {
+      if (bar.dataset.back) return;
+      const probe = await Api.probe({ timeoutMs: 4000 });
+      if (!probe.ok) return;
+      bar.dataset.back = '1';
+      bar.classList.add('offline-bar--back');
+      bar.innerHTML = '<strong>The internet is back.</strong> Sign in again to work online and see the latest records. <button type="button" class="btn btn--primary btn--sm" data-online>Go online</button>';
+      bar.querySelector('[data-online]').addEventListener('click', () => { Storage.lockOffline(); location.reload(); });
+    };
+    window.addEventListener('online', back);
+    if (typeof setInterval === 'function') setInterval(back, 30000);
   }
 
   /**
@@ -390,8 +474,10 @@ const App = (() => {
       if (nw.value.length < 10) { setErr('pw-new', 'Use at least 10 characters.'); nw.focus(); return; }
       if (nw.value !== rep.value) { setErr('pw-repeat', 'The two new passwords do not match.'); rep.focus(); return; }
       btn.disabled = true; btn.textContent = 'Saving…';
-      const res = await Api.changePassword(cur.value, nw.value);
+      const chosen = nw.value;
+      const res = await Api.changePassword(cur.value, chosen);
       cur.value = ''; nw.value = ''; rep.value = '';
+      if (res.ok) await Storage.enrollOffline(chosen);
       if (!res.ok) {
         btn.disabled = false; btn.textContent = 'Save password';
         const f = res.fields || {};
@@ -417,7 +503,7 @@ const App = (() => {
   }
 
   function rememberSource() {
-    const kind = Storage.isLocked() ? 'locked' : Storage.isApi() ? 'api' : 'local';
+    const kind = Storage.isLocked() ? 'locked' : Storage.isApi() ? 'api' : Storage.isOffline && Storage.isOffline() ? 'offline' : 'local';
     try { sessionStorage.setItem(LAST_SOURCE_KEY, kind); } catch (e) { /* private mode: no hint */ }
   }
 
@@ -430,10 +516,16 @@ const App = (() => {
       return { offline: false, pending: true, label: 'Connecting…',
                title: 'Loading the workshop records.' };
     }
-    return sourceFor(Storage.isLocked() ? 'locked' : Storage.isApi() ? 'api' : 'local');
+    return sourceFor(Storage.isLocked() ? 'locked' : Storage.isApi() ? 'api' : Storage.isOffline && Storage.isOffline() ? 'offline' : 'local');
   }
 
   function sourceFor(kind) {
+    if (kind === 'offline') {
+      const at = Storage.offlineSavedAt ? new Date(Storage.offlineSavedAt) : null;
+      const when = at && !Number.isNaN(at.getTime()) ? at.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'earlier';
+      return { offline: true, label: 'Offline — read-only copy',
+               title: `No internet. Showing the copy saved on this computer (${when}). Nothing can be changed until the internet is back.` };
+    }
     if (kind === 'locked') {
       return { offline: true, label: 'Signed out',
                title: 'Sign in to read or change the workshop records.' };
@@ -778,6 +870,8 @@ const App = (() => {
 
   async function signOutNow() {
     if (signingOut) return;
+    // Offline: close the saved copy in this tab (there is no server session to end).
+    if (Storage.isOffline && Storage.isOffline()) { Storage.lockOffline(); location.reload(); return; }
     // No server configured at all (a page opened from disk, the static demo):
     // there was never a session. Anything else asks the server, including a
     // press while the page is still loading and the mode is not settled yet.
@@ -882,7 +976,8 @@ const App = (() => {
    * goes too), and stand in for this page if it is one of them.
    */
   function applyAccess() {
-    if (!Storage.isApi()) return;
+    // Online, and offline too: the copy carries the role it was saved with.
+    if (!Storage.isApi() && !(Storage.isOffline && Storage.isOffline())) return;
     const page = document.body.dataset.page || 'dashboard';
     const root = document.body.dataset.root || '';
     document.querySelectorAll('.sidebar a[href]').forEach(a => {
@@ -932,7 +1027,8 @@ const App = (() => {
       const shell = earlyShell && document.querySelector('.shell');
       if (shell) shell.inert = true;
       rememberSource();
-      if (hydration.passwordChange) renderPasswordChange();
+      if (hydration.offline) renderOfflineUnlock(hydration);
+      else if (hydration.passwordChange) renderPasswordChange();
       else renderSignIn(hydration.canSignIn !== false, hydration.accountSignIn === true, hydration.sharedPassphrase !== false);
       return;
     }
@@ -943,7 +1039,7 @@ const App = (() => {
     warnIfBackendExpected(hydration);
     // Before the content is revealed, so a page this role may not open never shows.
     if (earlyShell) { applyAccess(); completeShell(); }
-    else { renderShell(); applyAccess(); showWho(); rememberSource(); }
+    else { renderShell(); applyAccess(); showWho(); showFootLink(); rememberSource(); afterReveal(); }
   }
 
   /**
@@ -987,14 +1083,15 @@ const App = (() => {
   /* Who is signed in, for the header (0019): the person's own name and role,
      or the shared workshop login. Drawn before the session is known as an
      empty name, so it never shows someone it is not. */
+  const signedInHere = () => Storage.isApi() || (Storage.isOffline && Storage.isOffline());
   function whoName() {
-    if (!Storage.isApi()) return 'Admin';
+    if (!signedInHere()) return 'Admin';
     const a = Storage.account;
     if (a) return a.name || a.username;
     return Storage.fullAccess ? 'Shared workshop login' : 'Workshop';
   }
   function whoRole(settings) {
-    const a = Storage.isApi() ? Storage.account : null;
+    const a = signedInHere() ? Storage.account : null;
     if (a) return a.role || 'No role';
     if (Storage.isApi() && Storage.fullAccess) return 'Passphrase (full access)';
     return `${(settings || Storage.getSettings()).businessName.split(' ')[0]} ASC`;
@@ -1006,7 +1103,7 @@ const App = (() => {
     if (role) role.textContent = whoRole();
     const btn = document.getElementById('profileMenuBtn');
     const img = btn && btn.querySelector('img.avatar');
-    const a = Storage.isApi() ? Storage.account : null;
+    const a = signedInHere() ? Storage.account : null;
     // A personal account gets its own initial, not the owner's photo.
     if (img && a) {
       const initial = document.createElement('span');
@@ -1016,6 +1113,25 @@ const App = (() => {
       img.replaceWith(initial);
     }
     if (btn) btn.setAttribute('aria-label', `${whoName()}, ${whoRole()} — account menu`);
+  }
+
+  /* The footer: a link to Offline & Sync, with the app version (js/version.js). */
+  function showFootLink() {
+    // Optional: whatever happens here must never stop the page from showing.
+    try {
+      const foot = document.getElementById('dataSource');
+      if (!foot || typeof foot.insertAdjacentHTML !== 'function' || foot.querySelector('.sidebar__foot-link')) return;
+      const root = document.body.dataset.root || '';
+      const version = typeof TAQWA_VERSION === 'string' ? TAQWA_VERSION : '';
+      foot.insertAdjacentHTML('beforeend', `<a class="sidebar__foot-link" href="${root}pages/offline-sync.html">Offline &amp; sync${version ? ` · v${Utils.esc(version)}` : ''}</a>`);
+    } catch (e) { /* no link, nothing else affected */ }
+  }
+  /* After the page is shown: online, refresh this person's offline copy; offline, say so. */
+  function afterReveal() {
+    if (Storage.isOffline && Storage.isOffline()) { showOfflineBar(); return; }
+    if (Storage.isApi() && typeof Storage.saveOfflineCopy === 'function' && typeof setTimeout === 'function') {
+      setTimeout(() => { Storage.saveOfflineCopy().catch(() => {}); }, 1500);
+    }
   }
 
   function completeShell() {
@@ -1036,7 +1152,9 @@ const App = (() => {
       signOut.remove();
     }
     showWho();
+    showFootLink();
     revealContent();
+    afterReveal();
     startNotifyBadge();
   }
 
@@ -1124,3 +1242,14 @@ const App = (() => {
 
   return { NAV, applyTheme };
 })();
+
+/* The service worker (sw.js): the app shell opens without internet. Only on
+   the deployed app (the API on this same origin), never from a file or a
+   cross-origin dev setup. It caches pages, scripts, styles and images only --
+   never business data. */
+if (typeof navigator !== 'undefined' && navigator.serviceWorker && typeof window !== 'undefined'
+    && typeof Api !== 'undefined' && Api.sameOrigin) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(e => console.warn('The offline app shell could not be installed:', e && e.message));
+  });
+}

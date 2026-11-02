@@ -76,7 +76,7 @@ ok('theme radios are visually hidden but not removed from the keyboard order', /
 /* ---------- CSP and script order ---------- */
 const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 check('scripts: shell scripts, then account-settings.js', scripts,
-  ['../js/api.js', '../js/seed-data.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/account-settings.js']);
+  ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/account-settings.js']);
 ok('the shell-drawn marker comes after every script', html.indexOf('id="shell-drawn"') > html.lastIndexOf('<script src='));
 ok('no inline event handlers (the CSP would block them)', !/\son[a-z]+\s*=/i.test(html));
 const head = s => s.slice(0, s.indexOf('</head>'));

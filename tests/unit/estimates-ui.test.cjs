@@ -73,7 +73,7 @@ console.log('-- 1. sidebar --');
 console.log('\n-- 2. the pages --');
 const head = s => s.slice(0, s.indexOf('</head>'));
 const settingsHead = head(read('pages/settings.html'));
-const SCRIPTS = ['../js/api.js', '../js/seed-data.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/estimates.js'];
+const SCRIPTS = ['../js/api.js', '../js/seed-data.js', '../js/version.js', '../js/offline.js', '../js/storage.js', '../js/utils.js', '../js/app.js', '../js/estimates.js'];
 const bodies = {};
 for (const [file, view, title] of PAGES) {
   const html = read(`pages/${file}.html`);

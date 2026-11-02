@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline &amp; Sync — Taqwa Automobile Service Center</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <script>
+    try {
+      var t = JSON.parse(localStorage.getItem('taqwa_theme'));
+      if (t) document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <link rel="stylesheet" href="../css/dashboard.css">
+  <link rel="stylesheet" href="../css/responsive.css">
+  <link rel="stylesheet" href="../css/offline-sync.css">
+  <!-- Hold the first paint until app.js has drawn the shell (marker at the end
+       of <body>), so a page change never shows a frame without the sidebar
+       and header. The browser keeps the previous page on screen meanwhile.
+       Chromium releases the hold as soon as app.js inserts the shell (it
+       contains images) and then logs "Did not find element expected to be
+       parsed" -- a harmless warning; the marker must stay AFTER the scripts,
+       because placed before app.js a frame can slip out before the shell. -->
+  <link rel="expect" href="#shell-drawn" blocking="render">
+  <!-- The sidebar logo and the header's avatar are drawn by app.js; fetch them
+       alongside the scripts so they are ready in that first frame instead of
+       popping in after it. -->
+  <link rel="preload" href="../assets/logo/logo-white.png" as="image">
+  <link rel="preload" href="../assets/avatar/admin.webp" as="image">
+</head>
+<body data-page="offline-sync" data-root="../">
+
+  <div id="page-content">
+
+    <!-- Offline & Sync (Phase 1). Filled in by js/offline-sync.js from this browser: the
+         service worker, the device id and the encrypted offline copies (js/offline.js).
+         Nothing here is sent anywhere, and no figure is invented. -->
+
+    <div class="ofs-head">
+      <h2 class="ofs-title">Offline &amp; Sync</h2>
+      <p class="page-subtitle">What this computer keeps for working without internet.</p>
+    </div>
+
+    <section class="ofs-grid" aria-label="This computer">
+      <div class="card ofs-stat"><span class="ofs-stat__label">Connection</span><strong class="ofs-stat__value" id="ofsConn">&ndash;</strong><span class="ofs-stat__sub" id="ofsConnSub"></span></div>
+      <div class="card ofs-stat"><span class="ofs-stat__label">App version</span><strong class="ofs-stat__value" id="ofsVersion">&ndash;</strong><span class="ofs-stat__sub" id="ofsShell"></span></div>
+      <div class="card ofs-stat"><span class="ofs-stat__label">This computer's ID</span><strong class="ofs-stat__value ofs-mono" id="ofsDevice">&ndash;</strong><span class="ofs-stat__sub">Made in this browser; it identifies the computer, not a person.</span></div>
+    </section>
+
+    <section class="card ofs-card" aria-labelledby="ofsCopiesTitle">
+      <div class="card__head ofs-card__head">
+        <h2 id="ofsCopiesTitle">Offline copies on this computer</h2>
+        <div class="ofs-actions">
+          <button type="button" class="btn btn--primary btn--sm" id="ofsSave" hidden>Save my copy now</button>
+          <button type="button" class="btn btn--danger btn--sm" id="ofsClearAll" hidden>Remove all offline copies</button>
+        </div>
+      </div>
+      <div class="card__body">
+        <p class="ofs-hint">When this computer is offline, someone who has signed in here online can open a <strong>read-only</strong> copy of what their role could see, with the same password. Each copy is encrypted and opens only with its owner's password. A copy older than <span id="ofsDays">7</span> days will not open.</p>
+        <div class="table-wrap">
+          <table class="table ofs-table">
+            <thead><tr><th scope="col">Person</th><th scope="col">Role</th><th scope="col">Copy saved</th><th scope="col">Opens until</th><th scope="col">Size</th><th scope="col"><span class="ofs-sr">Actions</span></th></tr></thead>
+            <tbody id="ofsCopies"><tr><td colspan="6" class="ofs-empty">Loading&hellip;</td></tr></tbody>
+          </table>
+        </div>
+        <p class="ofs-note" id="ofsMine" role="status"></p>
+      </div>
+    </section>
+
+    <section class="card ofs-card" aria-labelledby="ofsSyncTitle">
+      <div class="card__head ofs-card__head"><h2 id="ofsSyncTitle">Changes made offline</h2></div>
+      <div class="card__body">
+        <p class="ofs-hint"><strong>Not available in this version.</strong> The offline copy is read-only: a record cannot be created or changed while this computer is offline, and the screens say so. Nothing is waiting to be sent, so nothing can be lost here.</p>
+        <p class="ofs-hint">Saving changes offline and sending them to the shared database later (a queue per computer, safe numbering, and rules for money and stock) is the next phase. See <code>OFFLINE_SYSTEM.md</code>.</p>
+      </div>
+    </section>
+
+    <section class="ofs-warn" aria-labelledby="ofsWarnTitle">
+      <h2 id="ofsWarnTitle">Before clearing browser data</h2>
+      <p>Clearing this browser's site data (or "cookies and site data" for this site) removes the offline copies and the offline app. It removes nothing from the shared database. Everyone just needs to sign in online once again to make a new copy.</p>
+    </section>
+
+  </div>
+
+  <script src="../js/api.js"></script>
+  <script src="../js/seed-data.js"></script>
+  <script src="../js/version.js"></script>
+  <script src="../js/offline.js"></script>
+  <script src="../js/storage.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/app.js"></script>
+  <script src="../js/offline-sync.js"></script>
+  <span id="shell-drawn" hidden></span>
+</body>
+</html>
