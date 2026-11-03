@@ -415,7 +415,7 @@ console.log('\n-- 14. Route registration --');
   const b = await res.json();
   const routes = b.data.routes;
 
-  check('health advertises 165 routes', routes.length, 165);
+  check('health advertises 167 routes', routes.length, 167);
   ok_('advertises GET /api/settings', routes.includes('GET /api/settings'));
   ok_('does NOT advertise a settings detail route', !routes.includes('GET /api/settings/:id'));
   // Was "every route is a GET" through Phase B. C-2 made that false by
@@ -424,8 +424,8 @@ console.log('\n-- 14. Route registration --');
   {
     const byMethod = {};
     routes.forEach((r) => { const m = r.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    check('69 GET, 60 POST, 23 PUT, 13 DELETE (0020 added offline sync)', byMethod,
-      { GET: 69, POST: 60, PUT: 23, DELETE: 13 });
+    check('69 GET, 61 POST, 23 PUT, 14 DELETE (0021 equipment delete and reactivate, 0020 added offline sync)', byMethod,
+      { GET: 69, POST: 61, PUT: 23, DELETE: 14 });
     ok_('no other method is advertised',
       routes.every((r) => ['GET', 'POST', 'PUT', 'DELETE'].includes(r.split(' ')[0])));
     check('settings offers a read and a write, and nothing else',

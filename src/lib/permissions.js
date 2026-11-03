@@ -47,7 +47,7 @@ export const CATALOG = [
   { key: 'activity_log', label: 'Activity Log', actions: { view: 'Read the staff activity log' } },
   { key: 'users', label: 'User Accounts', actions: { view: 'See user accounts', create: 'Create user accounts', edit: 'Activate / deactivate accounts', manage: 'Set new passwords' } },
   { key: 'roles', label: 'Roles & Permissions', actions: { view: 'See roles and permissions', create: 'Create roles', edit: 'Edit roles and their permissions', delete: 'Delete unused roles', manage: 'Assign roles to user accounts' } },
-  { key: 'tools', label: 'Workshop Assets', actions: { view: 'See tools and equipment', create: 'Add tools', edit: 'Edit tools', manage: 'Retire tools', export: 'Export the tool list (CSV)' } },
+  { key: 'tools', label: 'Workshop Assets', actions: { view: 'See tools and equipment', create: 'Add tools and equipment', edit: 'Edit, assign and return tools and equipment', manage: 'Retire and reactivate tools and equipment (status)', export: 'Export the tool list (CSV)', delete: 'Delete tools and equipment permanently' } },
   { key: 'notifications', label: 'Notifications', actions: { view: 'See notifications (only for modules the role can see)' } },
   { key: 'reports', label: 'Reports', actions: { view: 'Open the reports pages', export: 'Export CRM reports (CSV)' } },
   { key: 'settings', label: 'Settings', actions: { view: 'Open the settings page', edit: 'Change workshop settings' } },
@@ -180,7 +180,7 @@ export const COLLECTION_PERMISSIONS = {
   'leave-requests': { view: 'leave.view', create: 'leave.create', actions: { approve: 'leave.approve', reject: 'leave.approve' } },
   'activity-log': { view: 'activity_log.view' },
   'website-forms': { view: 'inbox.view', update: 'inbox.edit' },
-  tools: { view: 'tools.view', create: 'tools.create', update: 'tools.edit', actions: { retire: 'tools.manage' } },
+  tools: { view: 'tools.view', create: 'tools.create', update: 'tools.edit', remove: 'tools.delete', actions: { retire: 'tools.manage', reactivate: 'tools.manage' } },
   roles: { view: 'roles.view', create: 'roles.create', update: 'roles.edit', remove: 'roles.delete' },
 };
 

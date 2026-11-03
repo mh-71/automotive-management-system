@@ -46,7 +46,9 @@ const AT = '2026-10-08T00:00:00Z';
 const MIGRATIONS = ['0001_initial_schema.sql', '0002_invoice_adjustments.sql', '0003_job_card_discount_type.sql',
   '0004_job_card_discount_rate.sql', '0005_customer_follow_ups.sql', '0006_follow_up_tasks.sql',
   '0007_estimates.sql', '0008_staff.sql', '0009_user_accounts.sql', '0010_attendance.sql',
-  '0011_leave_requests.sql', '0012_activity_log.sql', '0013_tools.sql', '0018_roles_permissions.sql', '0019_individual_login.sql'];
+  '0011_leave_requests.sql', '0012_activity_log.sql', '0013_tools.sql', '0018_roles_permissions.sql', '0019_individual_login.sql',
+  // 0021 (Equipment Inventory) extends this register; the routes read its columns and write its history.
+  '0021_equipment_inventory.sql'];
 const TOKEN = 'unit-test-token';
 const PASSPHRASE = 'workshop passphrase for tests';
 const SECRET = 'unit-test-signing-secret-0123456789abcdef';
@@ -124,7 +126,9 @@ const add = async (h, extra) => (await h.api('POST', '/api/tools', TOOL(extra)))
   const cols = h.DB.raw.prepare('PRAGMA table_info(tools)').all().map((c) => c.name);
   check('the tools table has exactly the planned columns', cols, ['id', 'name', 'category', 'brand', 'model', 'serial_no',
     'purchase_date', 'purchase_price', 'supplier', 'warranty_expiry', 'location', 'condition', 'status', 'description',
-    'notes', 'retired_at', 'retired_reason', 'created_by', 'updated_by', 'created_at', 'updated_at']);
+    'notes', 'retired_at', 'retired_reason', 'created_by', 'updated_by', 'created_at', 'updated_at',
+    // added by 0021, all NULLable
+    'assigned_staff_id', 'assigned_mechanic_id', 'last_service_date', 'next_service_due']);
   check('a TOL counter starts at 0', h.one("SELECT prefix, last_value FROM id_counters WHERE collection='tools'"), { prefix: 'TOL', last_value: 0 });
   const ins = (sql) => { try { h.DB.raw.exec(sql); return 'ok'; } catch (e) { return /CHECK|UNIQUE|NOT NULL/.exec(e.message)?.[0] || e.message; } };
   const row = (over) => {
@@ -145,10 +149,11 @@ const add = async (h, extra) => (await h.api('POST', '/api/tools', TOOL(extra)))
   let again = 'ok';
   try { h.DB.raw.exec(readFileSync(join(ROOT, 'migrations', '0013_tools.sql'), 'utf8')); } catch (e) { again = e.message; }
   check('the migration is re-runnable and keeps the counter', [again, h.one("SELECT count(*) AS n FROM id_counters WHERE collection='tools'").n], ['ok', 1]);
-  const before = MIGRATIONS.filter((f) => f !== '0013_tools.sql');
+  // 0021 builds on 0013 (it alters `tools`), so it is left out of the "without 0013" schema too.
+  const before = MIGRATIONS.filter((f) => f !== '0013_tools.sql' && f !== '0021_equipment_inventory.sql');
   const plain = new DatabaseSync(':memory:');
   for (const f of before) plain.exec(readFileSync(join(ROOT, 'migrations', f), 'utf8'));
-  const tables = (db) => db.prepare("SELECT name, sql FROM sqlite_master WHERE type IN ('table','index') AND name NOT LIKE '%tools%' AND sql IS NOT NULL ORDER BY name").all();
+  const tables = (db) => db.prepare("SELECT name, sql FROM sqlite_master WHERE type IN ('table','index') AND name NOT LIKE '%tool%' AND sql IS NOT NULL ORDER BY name").all();
   check('0013 is additive: every other table and index is unchanged', JSON.stringify(tables(h.DB.raw)) === JSON.stringify(tables(plain)), true);
 }
 
@@ -299,11 +304,13 @@ const add = async (h, extra) => (await h.api('POST', '/api/tools', TOOL(extra)))
   check('every tools route is 401 without a credential', denied, [401, 401, 401, 401, 401]);
   check('no statement ran for a refused caller', h.DB.statements.length, 0);
   check('a forged cookie is 401', (await h.api('GET', '/api/tools', undefined, 'taqwa_session=v1.9999999999.forged')).status, 401);
+  // 0021: DELETE exists (tools.delete; the token has full access). Covered in depth by api-equipment.
   const del = await h.api('DELETE', `/api/tools/${t.id}`);
-  check('there is no DELETE (405) and the tool remains', [del.status, h.one('SELECT count(*) AS n FROM tools').n], [405, 1]);
+  check('DELETE (0021) removes the tool and keeps its history', [del.status, h.one('SELECT count(*) AS n FROM tools').n,
+    h.one("SELECT count(*) AS n FROM tool_events WHERE tool_id = ? AND action = 'delete'", t.id).n], [200, 0, 1]);
   const route = await h.api('GET', '/api/nope');
-  check('the route list advertises the five tools routes', (route.body?.error?.available || []).filter((r) => r.includes('/api/tools')),
-    ['GET /api/tools', 'POST /api/tools', 'GET /api/tools/:id', 'PUT /api/tools/:id', 'POST /api/tools/:id/retire']);
+  check('the route list advertises the seven tools routes', (route.body?.error?.available || []).filter((r) => r.includes('/api/tools')),
+    ['GET /api/tools', 'POST /api/tools', 'GET /api/tools/:id', 'PUT /api/tools/:id', 'DELETE /api/tools/:id', 'POST /api/tools/:id/retire', 'POST /api/tools/:id/reactivate']);
   const broken = { ...h.env, DB: { prepare() { throw new Error('D1_ERROR: secret table detail'); } } };
   const res = await worker.fetch(new Request('http://worker.local/api/tools', { headers: { authorization: `Bearer ${TOKEN}` } }), broken);
   const text = await res.text();

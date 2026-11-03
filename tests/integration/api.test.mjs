@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 165 routes', routes.length === 165, routes);
+  t('advertises 167 routes', routes.length === 167, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('69 GET, 60 POST, 23 PUT, 13 DELETE (0020 added offline sync)',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 69, POST: 60, PUT: 23, DELETE: 13 }), byMethod);
+    t('69 GET, 61 POST, 23 PUT, 14 DELETE (0020 added offline sync; 0021 equipment delete and reactivate)',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 69, POST: 61, PUT: 23, DELETE: 14 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));
@@ -95,6 +95,7 @@ sec('1. Health');
         'POST /api/accounts/:id/password',
         'POST /api/leave-requests/:id/approve', 'POST /api/leave-requests/:id/reject',
         'POST /api/tools/:id/retire',
+        'POST /api/tools/:id/reactivate',
         'GET /api/messenger/conversations/:id/messages', 'POST /api/messenger/conversations/:id/reply',
         'POST /api/messenger/conversations/:id/read', 'PUT /api/messenger/conversations/:id/status',
         'GET /api/whatsapp/conversations/:id/messages', 'POST /api/whatsapp/conversations/:id/reply',

@@ -239,7 +239,9 @@ const json = (status, body) => ({ status, ok: status >= 200 && status < 300, jso
     const missing = pairs.map((p) => p[0]).filter((k) => !fs.existsSync(path.join(ROOT, 'pages', `${k}.html`)));
     check('   ...and every page it names exists', missing, []);
     const pages = fs.readdirSync(path.join(ROOT, 'pages')).map((f) => f.replace('.html', ''));
-    const unmarked = pages.filter((p) => /^(estimate|staff-|crm-|inbox-|workshop-|asset-|equipment-|maintenance-|notifications)/.test(p) && !pairs.some((x) => x[0] === p));
+    // Equipment Inventory (0021) works offline for adding equipment (queued), so it is deliberately not marked.
+    const OFFLINE_CAPABLE = ['equipment-inventory'];
+    const unmarked = pages.filter((p) => /^(estimate|staff-|crm-|inbox-|workshop-|asset-|equipment-|maintenance-|notifications)/.test(p) && !OFFLINE_CAPABLE.includes(p) && !pairs.some((x) => x[0] === p));
     check('   ...no page of those modules is left unmarked', unmarked, []);
     const html = fs.readFileSync(path.join(ROOT, 'pages/offline-sync.html'), 'utf8');
     ok('   ...and Offline & Sync lists them', ['Estimates', 'Attendance', 'Workshop Assets', 'Notifications', 'Staff', 'CRM', 'Inbox'].every((m) => html.includes(`<li>${m}</li>`)), '');

@@ -121,9 +121,11 @@ import {
 // Activity log (0012): read-only. Entries are written here, by withActivity()
 // around the Staff Management writes below, only after a change succeeded.
 import { listActivity, getActivity } from './routes/activity-log.js';
-// Workshop Assets › Tools & Equipment (0013). No remove: a tool is retired
-// (an administrator's action), never deleted.
-import { listTools, getTool, createTool, updateTool, retireTool } from './routes/tools.js';
+// Workshop Assets › Tools & Equipment (0013) and Equipment Inventory (0021),
+// one register. A tool normally leaves service by being retired (tools.manage)
+// and can be reactivated; DELETE (tools.delete, 0021) removes a record entered
+// by mistake and keeps its history in tool_events.
+import { listTools, getTool, createTool, updateTool, retireTool, reactivateTool, deleteTool } from './routes/tools.js';
 // Roles & Permissions (0018).
 import { listRoles, getRole, createRole, updateRole, deleteRole } from './routes/roles.js';
 import { withActivity } from './lib/activity.js';
@@ -280,8 +282,8 @@ const COLLECTIONS = {
   },
   tools: {
     list: listTools, detail: getTool,
-    create: createTool, update: updateTool,
-    actions: { retire: retireTool },
+    create: createTool, update: updateTool, remove: deleteTool,
+    actions: { retire: retireTool, reactivate: reactivateTool },
   },
   roles: {
     list: listRoles, detail: getRole,

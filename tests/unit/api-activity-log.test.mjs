@@ -333,8 +333,8 @@ console.log('\n-- G. compatibility --');
   const mec = await h.api('PUT', '/api/mechanics/MEC-0002', { name: 'Kamal Hossain', phone: '01800000002' });
   check('changes outside the logged Staff Management writes are not logged (customers, mechanics)', [cus.status, mec.status, count(h)], [201, 200, 0]);
   const routes = (await h.api('GET', '/api/health')).body?.data?.routes ?? [];
-  check('the registry is 165 routes: the 111 before, the two read routes, the five tools routes of 0013 and the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 the five Notifications routes of 0017 the five Roles routes of 0018 and the two session routes of 0019',
-    [routes.length, routes.filter((r) => r.includes('/api/activity-log'))], [165, ['GET /api/activity-log', 'GET /api/activity-log/:id']]);
+  check('the registry is 167 routes: the 111 before, the two read routes, the five tools routes of 0013 and the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 the five Notifications routes of 0017 the five Roles routes of 0018 and the two session routes of 0019 and the two equipment routes of 0021',
+    [routes.length, routes.filter((r) => r.includes('/api/activity-log'))], [167, ['GET /api/activity-log', 'GET /api/activity-log/:id']]);
 }
 
 console.log(`\nActivity log unit: ${pass} passed, ${fail} failed`);

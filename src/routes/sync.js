@@ -153,9 +153,13 @@ const PATHS = {
   customers: 'customers', vehicles: 'vehicles', appointments: 'appointments', jobCards: 'job-cards',
   services: 'services', mechanics: 'mechanics', parts: 'parts', invoices: 'invoices', payments: 'payments',
   expenses: 'expenses', inventoryTransactions: 'inventory-transactions', invoiceAdjustments: 'invoice-adjustments',
+  tools: 'tools',
 };
-/** What may be created or edited offline (the rest is online-only). */
-const OFFLINE_EDITABLE = ['customers', 'vehicles', 'appointments', 'jobCards', 'expenses', 'services', 'mechanics'];
+/** What may be created or edited offline (the rest is online-only). Equipment (tools, 0021): add and edit only --
+    retire, reactivate and delete stay online-only. */
+const OFFLINE_EDITABLE = ['customers', 'vehicles', 'appointments', 'jobCards', 'expenses', 'services', 'mechanics', 'tools'];
+/** Collections whose PUT requires the updatedAt the change was made from (stale-edit protection). */
+const NEEDS_EXPECTED = ['tools'];
 const KINDS = ['create', 'update', 'status', 'payment', 'invoice_draft', 'parts_usage', 'stock_movement'];
 
 /* ---------------------------------------------------------------
@@ -545,7 +549,10 @@ async function applyOp(c, op, opts = {}) {
           };
         }
       }
-      const r = await call(c, 'PUT', `/api/${path}/${encodeURIComponent(target)}`, changes);
+      // The field-by-field check above is this route's conflict test; the route's own
+      // stale-edit guard is then given the version that check was made against.
+      const sent = NEEDS_EXPECTED.includes(op.collection) ? { ...changes, expectedUpdatedAt: server.updatedAt } : changes;
+      const r = await call(c, 'PUT', `/api/${path}/${encodeURIComponent(target)}`, sent);
       if (r.status === 200) return { status: 'applied', id: r.body.data.id, record: r.body.data };
       return refusal(op, r, { local: changes });
     }

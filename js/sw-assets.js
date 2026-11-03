@@ -59,7 +59,7 @@ self.TAQWA_ASSETS = [
   "/js/crm-tasks.js",
   "/js/customers.js",
   "/js/dashboard.js",
-  "/js/equipment-inventory-ui.js",
+  "/js/equipment-inventory.js",
   "/js/estimates.js",
   "/js/expenses.js",
   "/js/inbox-conversations.js",

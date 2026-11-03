@@ -395,7 +395,7 @@ console.log('\n-- 11. Routing --');
     // 0016: website enquiries are read and updated by staff; they arrive through the public form endpoint.
     'GET /api/website-forms', 'GET /api/website-forms/:id', 'PUT /api/website-forms/:id',
     // 0013: tools are registered and edited, and retired by an administrator; never deleted.
-    'GET /api/tools', 'POST /api/tools', 'GET /api/tools/:id', 'PUT /api/tools/:id', 'POST /api/tools/:id/retire',
+    'GET /api/tools', 'POST /api/tools', 'GET /api/tools/:id', 'PUT /api/tools/:id', 'DELETE /api/tools/:id', 'POST /api/tools/:id/retire', 'POST /api/tools/:id/reactivate',
     'GET /api/roles', 'POST /api/roles', 'GET /api/roles/:id', 'PUT /api/roles/:id', 'DELETE /api/roles/:id',
     // 0014: the Messenger inbox, then Meta's public webhook.
     'GET /api/messenger/conversations', 'GET /api/messenger/conversations/:id', 'GET /api/messenger/conversations/:id/messages', 'POST /api/messenger/conversations/:id/reply', 'POST /api/messenger/conversations/:id/read', 'PUT /api/messenger/conversations/:id/status',
@@ -420,7 +420,7 @@ console.log('\n-- 11. Routing --');
   const res = await call('/api/nope', { DB: stubDB({ rows: [] }) });
   const body = await res.json();
   check('unknown collection -> 404', res.status, 404);
-  check('404 advertises every route', body.error.available.length, 165);
+  check('404 advertises every route', body.error.available.length, 167);
 }
 
 console.log(`\nGET /api/services unit: ${pass} passed, ${fail} failed`);

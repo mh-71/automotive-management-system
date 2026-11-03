@@ -650,7 +650,8 @@ const Storage = (() => {
     if (!isApi()) return apiOnlyRefusal();
     const res = await Api.get(`/${API_PATHS[collection]}/${encodeURIComponent(id)}`);
     if (!res.ok) return res;
-    return { ok: true, record: cachePut(collection, res.data) };
+    // meta carries what the route sends with a record (a tool's history, 0021).
+    return { ok: true, record: cachePut(collection, res.data), meta: res.meta || {} };
   }
 
   /**

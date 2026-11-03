@@ -42,15 +42,19 @@ const Sync = (() => {
   const PREFIX = {
     customers: 'CUS', vehicles: 'VEH', appointments: 'APT', jobCards: 'JOB', expenses: 'EXP',
     services: 'SRV', mechanics: 'MEC', payments: 'PAY', invoiceDrafts: 'DRF', inventoryTransactions: 'STK',
+    tools: 'TOL',
   };
   /** Collections a person may create and edit offline, and the permission module behind each. */
   const MODULE = {
     customers: 'customers', vehicles: 'vehicles', appointments: 'appointments', jobCards: 'job_cards',
     expenses: 'expenses', services: 'services', mechanics: 'mechanics',
+    // Equipment (0021): add, and edit what this computer holds; retire, reactivate and delete need the internet.
+    tools: 'tools',
   };
   const LABEL = {
     customers: 'customer', vehicles: 'vehicle', appointments: 'appointment', jobCards: 'job card', expenses: 'expense',
     services: 'service', mechanics: 'mechanic', payments: 'payment', invoiceDrafts: 'invoice draft', inventoryTransactions: 'stock movement',
+    tools: 'equipment',
   };
   const TEMP = /^OFF-[A-Z0-9]{1,8}-[A-Z]{3}-\d{4,}$/;
   const isTemp = (id) => typeof id === 'string' && TEMP.test(id);

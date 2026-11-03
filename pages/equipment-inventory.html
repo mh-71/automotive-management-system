@@ -18,19 +18,11 @@
   <link rel="stylesheet" href="../css/components.css">
   <link rel="stylesheet" href="../css/dashboard.css">
   <link rel="stylesheet" href="../css/responsive.css">
-  <link rel="stylesheet" href="../css/workshop-assets-demo.css">
   <link rel="stylesheet" href="../css/equipment-inventory.css">
   <!-- Hold the first paint until app.js has drawn the shell (marker at the end
        of <body>), so a page change never shows a frame without the sidebar
-       and header. The browser keeps the previous page on screen meanwhile.
-       Chromium releases the hold as soon as app.js inserts the shell (it
-       contains images) and then logs "Did not find element expected to be
-       parsed" -- a harmless warning; the marker must stay AFTER the scripts,
-       because placed before app.js a frame can slip out before the shell. -->
+       and header. The marker must stay AFTER the scripts. -->
   <link rel="expect" href="#shell-drawn" blocking="render">
-  <!-- The sidebar logo and the header's avatar are drawn by app.js; fetch them
-       alongside the scripts so they are ready in that first frame instead of
-       popping in after it. -->
   <link rel="preload" href="../assets/logo/logo-white.png" as="image">
   <link rel="preload" href="../assets/avatar/admin.webp" as="image">
 </head>
@@ -38,12 +30,80 @@
 
   <div id="page-content">
 
-    <!-- DEMO PAGE, UI ONLY. Drawn by js/workshop-assets-demo.js from the FICTIONAL sample data in
-         js/equipment-inventory-ui.js. Nothing here reads or writes the workshop database or browser storage, makes a
-         request or sends anything: search and filters only change this page until it is reloaded, and
-         every form, assign, return, schedule and export action is a preview that saves nothing.
-         Large and permanent workshop equipment: lifts, compressors, alignment and tyre machines. -->
-    <div id="adRoot" class="ad-root"></div>
+    <!-- Equipment Inventory. Filled in by js/equipment-inventory.js from the workshop database
+         (GET /api/tools: the same register as Tools & Equipment, migrations 0013 + 0021). When the
+         database cannot be read the page says so; it never shows sample or browser-stored data. -->
+
+    <div class="ei-head">
+      <span class="ei-head__icon"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1 0-2 .9-2 2v3c0 .7.4 1.4 1 1.7V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.6-.3 1-1 1-1.7V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z"/></svg></span>
+      <div class="ei-head__text">
+        <h2 class="ei-head__title">Equipment Inventory</h2>
+        <p class="page-subtitle">Every piece of workshop equipment: what it is, where it is, who has it, its condition and its servicing.</p>
+      </div>
+      <button type="button" class="btn btn--primary ei-add" id="eiAdd" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg><span>Add Equipment</span></button>
+    </div>
+
+    <section class="ei-stats" aria-label="Equipment summary" aria-live="polite">
+      <div class="ei-stat ei-stat--total"><div class="ei-stat__label">Total Equipment</div><div class="ei-stat__value" id="eiTotal">&#8212;</div><div class="ei-stat__sub" id="eiTotalSub">In service, excluding inactive</div></div>
+      <div class="ei-stat ei-stat--available"><div class="ei-stat__label">Available</div><div class="ei-stat__value" id="eiAvailable">&#8212;</div><div class="ei-stat__sub">Ready to use</div></div>
+      <div class="ei-stat ei-stat--assigned"><div class="ei-stat__label">Assigned</div><div class="ei-stat__value" id="eiAssigned">&#8212;</div><div class="ei-stat__sub">With a staff member or mechanic</div></div>
+      <div class="ei-stat ei-stat--maint"><div class="ei-stat__label">Under Maintenance</div><div class="ei-stat__value" id="eiMaint">&#8212;</div><div class="ei-stat__sub" id="eiMaintSub">Being serviced or repaired</div></div>
+      <div class="ei-stat ei-stat--damaged"><div class="ei-stat__label">Damaged</div><div class="ei-stat__value" id="eiDamaged">&#8212;</div><div class="ei-stat__sub">Not fit for use</div></div>
+      <div class="ei-stat ei-stat--value"><div class="ei-stat__label">Total Purchase Value</div><div class="ei-stat__value ei-stat__value--money" id="eiValue">&#8212;</div><div class="ei-stat__sub">Equipment in service</div></div>
+    </section>
+
+    <section class="ei-queued" id="eiQueued" aria-live="polite" hidden></section>
+
+    <section class="card ei-card-list" aria-labelledby="eiListTitle">
+      <h2 class="ei-sr-only" id="eiListTitle">Equipment list</h2>
+      <div class="ei-toolbar" role="search" aria-label="Find equipment">
+        <label class="ei-search">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="search" class="input" id="eiSearch" placeholder="Search name, Equipment ID or serial number&#8230;" aria-label="Search by equipment name, Equipment ID, brand, model or serial number" autocomplete="off" maxlength="100">
+        </label>
+        <select class="select ei-select" id="eiCategory" aria-label="Filter by category"><option value="">All categories</option></select>
+        <select class="select ei-select" id="eiStatus" aria-label="Filter by status"><option value="">All statuses</option></select>
+        <label class="ei-date"><span>Purchased from</span><input type="date" class="input" id="eiFrom" aria-label="Purchased on or after"></label>
+        <label class="ei-date"><span>to</span><input type="date" class="input" id="eiTo" aria-label="Purchased on or before"></label>
+        <select class="select ei-select" id="eiSort" aria-label="Sort equipment">
+          <option value="createdAt:desc">Newest first</option>
+          <option value="name:asc">Name A&#8211;Z</option>
+          <option value="name:desc">Name Z&#8211;A</option>
+          <option value="purchaseDate:desc">Purchase date, newest</option>
+          <option value="purchaseDate:asc">Purchase date, oldest</option>
+          <option value="purchasePrice:desc">Price, highest</option>
+          <option value="purchasePrice:asc">Price, lowest</option>
+        </select>
+        <div class="ei-toolbar__end">
+          <button type="button" class="btn btn--ghost ei-btn" id="eiClear" hidden>Clear filters</button>
+          <button type="button" class="btn btn--ghost ei-btn" id="eiExport" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span>Export CSV</span></button>
+        </div>
+      </div>
+
+      <div class="ei-state" id="eiState" role="status" aria-live="polite"></div>
+
+      <div class="table-wrap ei-table-wrap" id="eiTableWrap" hidden>
+        <table class="table ei-table">
+          <thead>
+            <tr><th scope="col">Equipment ID</th><th scope="col">Equipment</th><th scope="col">Category</th><th scope="col">Brand / Model</th><th scope="col">Assigned To</th><th scope="col">Location</th><th scope="col">Condition</th><th scope="col">Status</th><th scope="col">Maintenance</th><th scope="col" class="ei-c-num">Purchase Price</th><th scope="col" class="ei-th-actions">Actions</th></tr>
+          </thead>
+          <tbody id="eiBody"></tbody>
+        </table>
+      </div>
+      <ul class="ei-cards" id="eiCards" hidden></ul>
+
+      <div class="ei-foot" id="eiFoot" hidden>
+        <span id="eiCount" aria-live="polite"></span>
+        <div class="ei-pager" role="group" aria-label="Pages">
+          <label class="ei-pagesize"><span>Rows</span>
+            <select class="select" id="eiPageSize" aria-label="Rows per page"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+          </label>
+          <button type="button" class="ei-page" id="eiPrev" aria-label="Previous page">&#8249;</button>
+          <span class="ei-page-label" id="eiPageLabel"></span>
+          <button type="button" class="ei-page" id="eiNext" aria-label="Next page">&#8250;</button>
+        </div>
+      </div>
+    </section>
 
   </div>
 
@@ -55,8 +115,7 @@
   <script src="../js/storage.js"></script>
   <script src="../js/utils.js"></script>
   <script src="../js/app.js"></script>
-  <script src="../js/workshop-assets-demo.js"></script>
-  <script src="../js/equipment-inventory-ui.js"></script>
+  <script src="../js/equipment-inventory.js"></script>
   <span id="shell-drawn" hidden></span>
 </body>
 </html>

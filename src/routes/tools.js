@@ -9,12 +9,27 @@
      GET  /api/tools/:id           one tool
      POST /api/tools               register a tool
      PUT  /api/tools/:id           merge; `expectedUpdatedAt` is required
-     POST /api/tools/:id/retire    { reason, expectedUpdatedAt } -- an
-                                   administrator only
+     POST /api/tools/:id/retire    { reason, expectedUpdatedAt } -- tools.manage
+     POST /api/tools/:id/reactivate { status?, expectedUpdatedAt } -- tools.manage
+                                   (0021): a retired tool back in service
+     DELETE /api/tools/:id         ?expectedUpdatedAt -- tools.delete (0021):
+                                   removes the row for good; its history in
+                                   tool_events stays. Refused while assigned.
 
-   There is no DELETE: a tool leaves service by being retired, and keeps
-   its record. A retired tool is left out of the list unless asked for
-   (status=Retired or includeRetired=1) and cannot be edited.
+   Retiring is the normal way out of service: the record is kept. A retired
+   tool is left out of the list unless asked for (status=Retired or
+   includeRetired=1) and cannot be edited until it is reactivated. DELETE is
+   for a record that should never have existed (entered twice, by mistake).
+
+   0021 (Equipment Inventory, the same register) adds, all optional:
+     * assignedStaffId | assignedMechanicId -- who has it. Never both; only an
+       Active person; an assigned item is In Use. Moving an item out of In Use
+       ends its assignment (so a form that knows nothing of assignment, like
+       Tools & Equipment, keeps working);
+     * lastServiceDate, nextServiceDue -- and a derived maintenanceStatus;
+     * tool_events -- the item's history, written in the SAME batch as the
+       change, so a change is never saved without its entry or vice versa;
+     * list: purchasedFrom / purchasedTo, meta.purchaseValue, meta.serviceDue.
 
    Rules the schema also holds, checked here first so the answer names
    the field (the CHECKs remain the final word):
@@ -59,9 +74,16 @@ const LIMITS = { name: 120, brand: 80, model: 80, serialNo: 80, supplier: 160, l
 
 /** Every field a create or edit may send. Anything else is refused by name. */
 const FIELD_KEYS = ['name', 'category', 'brand', 'model', 'serialNo', 'purchaseDate', 'purchasePrice',
-  'supplier', 'warrantyExpiry', 'location', 'condition', 'status', 'description', 'notes'];
+  'supplier', 'warrantyExpiry', 'location', 'condition', 'status', 'description', 'notes',
+  'assignedStaffId', 'assignedMechanicId', 'lastServiceDate', 'nextServiceDue'];
 const UPDATE_KEYS = [...FIELD_KEYS, 'expectedUpdatedAt'];
 const RETIRE_KEYS = ['reason', 'expectedUpdatedAt'];
+const REACTIVATE_KEYS = ['status', 'expectedUpdatedAt'];
+/** A reactivated tool is not assigned to anyone yet, so it cannot come back In Use. */
+const REACTIVATE_STATUSES = ['Available', 'Under Maintenance', 'Damaged'];
+/** Days ahead that count as "service due soon". */
+export const SERVICE_SOON_DAYS = 14;
+const PERSON_ID = /^[A-Z]{3}-\d{4,}$/;
 
 /** sort key -> a fixed SQL expression. Nothing from the request reaches ORDER BY. */
 const SORTS = {
@@ -73,7 +95,28 @@ const SORTS = {
 
 const COLUMNS = `id, name, category, brand, model, serial_no, purchase_date, purchase_price, supplier,
   warranty_expiry, location, condition, status, description, notes, retired_at, retired_reason,
-  created_by, updated_by, created_at, updated_at`;
+  created_by, updated_by, created_at, updated_at,
+  assigned_staff_id, assigned_mechanic_id, last_service_date, next_service_due,
+  (SELECT s.name FROM staff s WHERE s.id = tools.assigned_staff_id) AS assigned_staff_name,
+  (SELECT m.name FROM mechanics m WHERE m.id = tools.assigned_mechanic_id) AS assigned_mechanic_name`;
+
+/** YYYY-MM-DD `days` after `day`. */
+function addDays(day, days) {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** What the item's servicing looks like today. Derived, never stored. */
+export function maintenanceStatus(row, today = todayInDhaka()) {
+  if (row.status === 'Retired') return 'Not applicable';
+  if (row.status === 'Under Maintenance') return 'Under maintenance';
+  const due = row.next_service_due;
+  if (!due) return 'Not scheduled';
+  if (due < today) return 'Overdue';
+  if (due <= addDays(today, SERVICE_SOON_DAYS)) return 'Due soon';
+  return 'Scheduled';
+}
 
 function toRecord(row) {
   return {
@@ -98,6 +141,16 @@ function toRecord(row) {
     updatedBy: row.updated_by ?? '',
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
+    assignedStaffId: row.assigned_staff_id ?? '',
+    assignedMechanicId: row.assigned_mechanic_id ?? '',
+    assignedTo: row.assigned_staff_id
+      ? { kind: 'staff', id: row.assigned_staff_id, name: row.assigned_staff_name || row.assigned_staff_id }
+      : row.assigned_mechanic_id
+        ? { kind: 'mechanic', id: row.assigned_mechanic_id, name: row.assigned_mechanic_name || row.assigned_mechanic_id }
+        : null,
+    lastServiceDate: row.last_service_date ?? '',
+    nextServiceDue: row.next_service_due ?? '',
+    maintenanceStatus: maintenanceStatus(row),
   };
 }
 
@@ -145,9 +198,16 @@ function readFields(body, mode) {
   else f.take('status', 'status', readEnum(body, 'status', WRITABLE_STATUSES, { required }));
   f.take('description', 'description', readString(body, 'description', { max: LIMITS.description }));
   f.take('notes', 'notes', readString(body, 'notes', { max: LIMITS.notes }));
+  for (const [col, key] of [['assigned_staff_id', 'assignedStaffId'], ['assigned_mechanic_id', 'assignedMechanicId']]) {
+    const r = readString(body, key, { max: 40 });
+    if (!r.error && r.value && !PERSON_ID.test(r.value)) f.reject(key, 'That is not a staff or mechanic id.');
+    else f.take(col, key, r);
+  }
+  f.take('last_service_date', 'lastServiceDate', readDate(body, 'lastServiceDate'));
+  f.take('next_service_due', 'nextServiceDue', readDate(body, 'nextServiceDue'));
 
   for (const col of ['brand', 'model', 'serial_no', 'purchase_date', 'supplier', 'warranty_expiry',
-    'location', 'description', 'notes']) {
+    'location', 'description', 'notes', 'assigned_staff_id', 'assigned_mechanic_id', 'last_service_date', 'next_service_due']) {
     if (f.values[col] !== undefined) f.values[col] = nullIfBlank(f.values[col]);
   }
   if (f.values.name !== undefined) f.values.name = f.values.name.replace(/\s+/g, ' ');
@@ -169,7 +229,82 @@ function checkWhole(tool, errors) {
   } else if (USABLE.includes(tool.status) && !USABLE_CONDITIONS.includes(tool.condition)) {
     errors.status = `A tool in ${tool.condition} condition cannot be ${tool.status}. Mark it Under Maintenance or Damaged.`;
   }
+  if (tool.assigned_staff_id && tool.assigned_mechanic_id) {
+    errors.assignedStaffId = 'Assign it to one person: an employee or a mechanic, not both.';
+  } else if ((tool.assigned_staff_id || tool.assigned_mechanic_id) && tool.status !== 'In Use' && !errors.status) {
+    errors.status = 'Equipment assigned to someone must be In Use (Assigned). Return it first to change its status.';
+  }
+  if (tool.last_service_date) {
+    if (tool.last_service_date < EARLIEST_PURCHASE) errors.lastServiceDate = `Last service date cannot be before ${EARLIEST_PURCHASE}.`;
+    else if (tool.last_service_date > todayInDhaka()) errors.lastServiceDate = 'Last service date cannot be in the future.';
+  }
+  if (tool.next_service_due && tool.last_service_date && tool.next_service_due < tool.last_service_date) {
+    errors.nextServiceDue = 'Next service must be on or after the last service.';
+  }
 }
+
+/**
+ * The person an assignment names must exist and be Active: an employee from
+ * Staff (not a mechanic's profile row) or a mechanic. Only checked when the
+ * assignment is being set; fills errors and returns the person's name.
+ */
+async function checkAssignee(env, values, errors) {
+  if (values.assigned_staff_id) {
+    const p = await env.DB.prepare(
+      'SELECT id, name, status FROM staff WHERE id = ?1 AND mechanic_id IS NULL LIMIT 1'
+    ).bind(values.assigned_staff_id).first();
+    if (!p) errors.assignedStaffId = 'No employee with that id.';
+    else if (p.status !== 'Active') errors.assignedStaffId = `${p.name} is not active, so equipment cannot be assigned to them.`;
+    return p ? p.name : null;
+  }
+  if (values.assigned_mechanic_id) {
+    const p = await env.DB.prepare('SELECT id, name, status FROM mechanics WHERE id = ?1 LIMIT 1')
+      .bind(values.assigned_mechanic_id).first();
+    if (!p) errors.assignedMechanicId = 'No mechanic with that id.';
+    else if (p.status && p.status !== 'Active') errors.assignedMechanicId = `${p.name} is not active, so equipment cannot be assigned to them.`;
+    return p ? p.name : null;
+  }
+  return null;
+}
+
+/* ---------- history (tool_events, 0021) ---------- */
+
+const clip = (s) => String(s).slice(0, 300);
+
+/** An event row, written only if the tool row now carries `stamp` (the change landed). */
+function eventIfLanded(env, id, stamp, actor, action, summary) {
+  return env.DB.prepare(
+    `INSERT INTO tool_events (tool_id, occurred_at, actor, action, summary)
+     SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM tools WHERE id = ?1 AND updated_at = ?2)`
+  ).bind(id, stamp, actor, action, clip(summary));
+}
+
+const FIELD_LABELS = {
+  name: 'name', category: 'category', brand: 'brand', model: 'model', serial_no: 'serial number',
+  purchase_date: 'purchase date', purchase_price: 'purchase price', supplier: 'supplier',
+  warranty_expiry: 'warranty expiry', location: 'location', condition: 'condition', description: 'description',
+  notes: 'notes', last_service_date: 'last service date', next_service_due: 'next service due',
+};
+
+/** What an edit did, as history entries: [action, summary]. */
+function editEvents(row, merged, changedCols, newName) {
+  const out = [];
+  const before = row.assigned_staff_id || row.assigned_mechanic_id || null;
+  const after = merged.assigned_staff_id || merged.assigned_mechanic_id || null;
+  const beforeName = row.assigned_staff_name || row.assigned_mechanic_name || before;
+  if (before !== after) {
+    if (before) out.push(['return', `Returned by ${beforeName} (${before})`]);
+    if (after) out.push(['assign', `Assigned to ${newName || after} (${after})`]);
+  }
+  // Assigning puts an item In Use: the assignment entry says so already.
+  if (merged.status !== row.status && !(before !== after && after && merged.status === 'In Use')) {
+    out.push(['status', `Status: ${row.status} → ${merged.status}`]);
+  }
+  const plain = changedCols.filter((c) => FIELD_LABELS[c] && !same(row[c], merged[c]));
+  if (plain.length) out.push(['update', `Edited ${plain.map((c) => FIELD_LABELS[c]).join(', ')}`]);
+  return out;
+}
+const same = (a, b) => (a ?? null) === (b ?? null);
 
 async function findRow(env, id) {
   return env.DB.prepare(`SELECT ${COLUMNS} FROM tools WHERE id = ?1 LIMIT 1`).bind(id).first();
@@ -245,6 +380,15 @@ export async function listTools(request, env, url) {
   };
   for (const f of Object.values(filters)) if (f.error) return fail('invalid_parameter', f.error, 400);
 
+  const dates = {};
+  for (const name of ['purchasedFrom', 'purchasedTo']) {
+    const raw = url.searchParams.get(name);
+    if (raw === null || raw === '') { dates[name] = null; continue; }
+    const d = readDate({ [name]: raw }, name);
+    if (d.error) return fail('invalid_parameter', d.error, 400);
+    dates[name] = d.value;
+  }
+
   const q = (url.searchParams.get('q') || '').trim();
   if (q.length > LIMITS.q) return fail('invalid_parameter', `\`q\` must be ${LIMITS.q} characters or fewer.`, 400);
   // LIKE wildcards in the search text are matched literally.
@@ -266,21 +410,30 @@ export async function listTools(request, env, url) {
        AND (?5 IS NULL
             OR lower(id) LIKE ?5 ESCAPE '\\' OR lower(name) LIKE ?5 ESCAPE '\\'
             OR lower(coalesce(brand, '')) LIKE ?5 ESCAPE '\\' OR lower(coalesce(model, '')) LIKE ?5 ESCAPE '\\'
-            OR lower(coalesce(serial_no, '')) LIKE ?5 ESCAPE '\\')`;
-  const binds = [filters.category.value, status, filters.condition.value, withRetired ? 1 : 0, needle];
+            OR lower(coalesce(serial_no, '')) LIKE ?5 ESCAPE '\\')
+       AND (?6 IS NULL OR purchase_date >= ?6)
+       AND (?7 IS NULL OR purchase_date <= ?7)`;
+  const binds = [filters.category.value, status, filters.condition.value, withRetired ? 1 : 0, needle,
+    dates.purchasedFrom, dates.purchasedTo];
 
   try {
     const { results } = await env.DB.prepare(
-      `SELECT ${COLUMNS} FROM tools ${where} ORDER BY ${orderBy} LIMIT ?6 OFFSET ?7`
+      `SELECT ${COLUMNS} FROM tools ${where} ORDER BY ${orderBy} LIMIT ?8 OFFSET ?9`
     ).bind(...binds, limit.value, offset.value).all();
     const total = await env.DB.prepare(`SELECT count(*) AS n FROM tools ${where}`).bind(...binds).first();
-    const counts = await env.DB.prepare('SELECT status, count(*) AS n FROM tools GROUP BY status').all();
+    const counts = await env.DB.prepare('SELECT status, count(*) AS n, total(purchase_price) AS v FROM tools GROUP BY status').all();
+    const today = todayInDhaka();
+    const due = await env.DB.prepare(
+      `SELECT count(*) AS n FROM tools
+        WHERE status NOT IN ('Retired', 'Under Maintenance') AND next_service_due IS NOT NULL AND next_service_due <= ?1`
+    ).bind(addDays(today, SERVICE_SOON_DAYS)).first();
 
     const summary = { total: 0, available: 0, inUse: 0, underMaintenance: 0, damaged: 0, retired: 0 };
     const keyOf = { Available: 'available', 'In Use': 'inUse', 'Under Maintenance': 'underMaintenance', Damaged: 'damaged', Retired: 'retired' };
+    let value = 0;
     for (const r of counts.results || []) {
       if (keyOf[r.status]) summary[keyOf[r.status]] = r.n;
-      if (r.status !== 'Retired') summary.total += r.n;
+      if (r.status !== 'Retired') { summary.total += r.n; value += Number(r.v) || 0; }
     }
 
     const rows = results || [];
@@ -290,6 +443,10 @@ export async function listTools(request, env, url) {
       limit: limit.value,
       offset: offset.value,
       summary,
+      // Purchase value of everything in service (retired items excluded), in taka.
+      purchaseValue: Math.round(value * 100) / 100,
+      // In service and due for servicing within SERVICE_SOON_DAYS, or overdue.
+      serviceDue: due ? due.n : 0,
       categories: TOOL_CATEGORIES,
       statuses: TOOL_STATUSES,
       conditions: TOOL_CONDITIONS,
@@ -310,7 +467,11 @@ export async function getTool(request, env, rawId) {
   try {
     const row = await findRow(env, id.value);
     if (!row) return fail('not_found', 'No tool with that id.', 404);
-    return ok(toRecord(row));
+    const ev = await env.DB.prepare(
+      'SELECT occurred_at, actor, action, summary FROM tool_events WHERE tool_id = ?1 ORDER BY id DESC LIMIT 50'
+    ).bind(id.value).all();
+    const events = (ev.results || []).map((e) => ({ at: e.occurred_at, actor: e.actor || '', action: e.action, summary: e.summary }));
+    return ok(toRecord(row), { events });
   } catch (err) {
     console.error('GET /api/tools/:id failed:', err && err.message);
     return fail('database_error', 'Could not read the tool.', 500);
@@ -333,6 +494,8 @@ export async function createTool(request, env) {
   if (Object.keys(errors).length) return unprocessable('Some tool fields are not valid.', errors);
 
   try {
+    const assigneeName = await checkAssignee(env, f.values, errors);
+    if (Object.keys(errors).length) return unprocessable('Some tool fields are not valid.', errors);
     const clash = await serialClash(env, f.values.serial_no, null);
     if (clash) return serialConflict(clash);
 
@@ -345,9 +508,16 @@ export async function createTool(request, env) {
     const who = actorName(request);
     const values = { ...f.values, id: allocated.id, created_by: who, updated_by: who, created_at: now, updated_at: now };
     const names = Object.keys(values);
-    await env.DB.prepare(
-      `INSERT INTO tools (${names.join(', ')}) VALUES (${names.map((_, i) => `?${i + 1}`).join(', ')})`
-    ).bind(...names.map((n) => values[n])).run();
+    const stmts = [
+      env.DB.prepare(
+        `INSERT INTO tools (${names.join(', ')}) VALUES (${names.map((_, i) => `?${i + 1}`).join(', ')})`
+      ).bind(...names.map((n) => values[n])),
+      eventIfLanded(env, allocated.id, now, who, 'create', `Added ${values.name} (${values.category}) as ${values.status}`),
+    ];
+    const assignee = values.assigned_staff_id || values.assigned_mechanic_id;
+    if (assignee) stmts.push(eventIfLanded(env, allocated.id, now, who, 'assign', `Assigned to ${assigneeName || assignee} (${assignee})`));
+    // The row and its history entry are one transaction.
+    await env.DB.batch(stmts);
     return ok(toRecord(await findRow(env, allocated.id)), {}, 201);
   } catch (err) {
     if (/UNIQUE constraint failed/i.test(String(err && err.message)) && /serial/i.test(String(err && err.message))) {
@@ -385,8 +555,23 @@ export async function updateTool(request, env, rawId) {
     if (row.status === 'Retired') return retiredConflict();
     if ((row.updated_at ?? row.created_at) !== expected) return staleConflict();
 
+    // Leaving In Use ends the assignment, unless this same edit names one
+    // (which checkWhole then refuses). A caller that knows nothing of
+    // assignment -- Tools & Equipment -- can still move an item on.
+    const assignmentSent = body.assignedStaffId !== undefined || body.assignedMechanicId !== undefined;
+    if (f.values.status !== undefined && f.values.status !== 'In Use' && !assignmentSent
+      && (row.assigned_staff_id || row.assigned_mechanic_id)) {
+      f.values.assigned_staff_id = null;
+      f.values.assigned_mechanic_id = null;
+    }
+
     const merged = { ...row, ...f.values };
     checkWhole(merged, errors);
+    if (Object.keys(errors).length) return unprocessable('Some tool fields are not valid.', errors);
+
+    const assignmentChanged = !same(row.assigned_staff_id, merged.assigned_staff_id)
+      || !same(row.assigned_mechanic_id, merged.assigned_mechanic_id);
+    const assigneeName = assignmentChanged ? await checkAssignee(env, merged, errors) : null;
     if (Object.keys(errors).length) return unprocessable('Some tool fields are not valid.', errors);
 
     if (f.values.serial_no !== undefined) {
@@ -394,13 +579,21 @@ export async function updateTool(request, env, rawId) {
       if (clash) return serialConflict(clash);
     }
 
-    const values = { ...f.values, updated_by: actorName(request), updated_at: nextStamp(row.updated_at) };
+    const who = actorName(request);
+    const stamp = nextStamp(row.updated_at);
+    const values = { ...f.values, updated_by: who, updated_at: stamp };
     const names = Object.keys(values);
     const sets = names.map((n, i) => `${n} = ?${i + 3}`).join(', ');
-    // The check and the change are one statement: an edit made meanwhile is never overwritten.
-    const res = await env.DB.prepare(
-      `UPDATE tools SET ${sets} WHERE id = ?1 AND coalesce(updated_at, created_at) = ?2 AND status <> 'Retired'`
-    ).bind(id, expected, ...names.map((n) => values[n])).run();
+    const events = editEvents(row, merged, Object.keys(f.values), assigneeName);
+    // The check and the change are one statement: an edit made meanwhile is
+    // never overwritten. Its history entries land only if the change did.
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE tools SET ${sets} WHERE id = ?1 AND coalesce(updated_at, created_at) = ?2 AND status <> 'Retired'`
+      ).bind(id, expected, ...names.map((n) => values[n])),
+      ...events.map(([action, summary]) => eventIfLanded(env, id, stamp, who, action, summary)),
+    ]);
+    const res = results[0];
     if (!res.meta || res.meta.changes !== 1) return staleConflict();
     return ok(toRecord(await findRow(env, id)));
   } catch (err) {
@@ -438,17 +631,128 @@ export async function retireTool(request, env, rawId) {
     if ((row.updated_at ?? row.created_at) !== expected) return staleConflict();
 
     const now = nextStamp(row.updated_at);
-    const res = await env.DB.prepare(
-      `UPDATE tools
-          SET status = 'Retired', retired_at = ?3, retired_reason = ?4, updated_by = ?5, updated_at = ?3
-        WHERE id = ?1 AND coalesce(updated_at, created_at) = ?2 AND status <> 'Retired'`
-    ).bind(id, expected, now, reason.value, actorName(request)).run();
-    if (!res.meta || res.meta.changes !== 1) return staleConflict();
+    const who = actorName(request);
+    const holder = row.assigned_staff_id || row.assigned_mechanic_id;
+    // A retired item is with no one: its assignment ends with it.
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE tools
+            SET status = 'Retired', retired_at = ?3, retired_reason = ?4, updated_by = ?5, updated_at = ?3,
+                assigned_staff_id = NULL, assigned_mechanic_id = NULL
+          WHERE id = ?1 AND coalesce(updated_at, created_at) = ?2 AND status <> 'Retired'`
+      ).bind(id, expected, now, reason.value, who),
+      ...(holder ? [eventIfLanded(env, id, now, who, 'return', `Returned by ${row.assigned_staff_name || row.assigned_mechanic_name || holder} (${holder}) on retirement`)] : []),
+      eventIfLanded(env, id, now, who, 'retire', `Retired (was ${row.status}): ${reason.value}`),
+    ]);
+    if (!results[0].meta || results[0].meta.changes !== 1) return staleConflict();
     return ok(toRecord(await findRow(env, id)));
   } catch (err) {
     const mapped = constraintFailure(err);
     if (mapped) return mapped;
     console.error('POST /api/tools/:id/retire failed:', err && err.message);
     return fail('database_error', 'Could not retire the tool.', 500);
+  }
+}
+
+/* ---------- POST /api/tools/:id/reactivate (0021) ---------- */
+
+export async function reactivateTool(request, env, rawId) {
+  if (request.method !== 'POST') return methodNotAllowed(['POST']);
+  if (!env.DB) return noDatabase();
+  if (!can(principalOf(request), 'tools.manage')) {
+    return fail('forbidden', 'Your role cannot return equipment to service.', 403);
+  }
+  const id = readId(rawId);
+  if (!id) return fail('invalid_id', 'That is not a tool id.', 400);
+  const parsed = await readJsonBody(request);
+  if (parsed.error) return fail('invalid_body', parsed.error, 400);
+  const body = parsed.value;
+
+  const errors = unknownKeys(body, REACTIVATE_KEYS);
+  const expected = readExpected(body, errors);
+  const wanted = readEnum(body, 'status', REACTIVATE_STATUSES);
+  if (wanted.error) errors.status = wanted.error;
+  if (Object.keys(errors).length) return unprocessable('The equipment could not be reactivated.', errors);
+
+  try {
+    const row = await findRow(env, id);
+    if (!row) return fail('not_found', 'No tool with that id.', 404);
+    if (row.status !== 'Retired') return conflict('This equipment is already in service.', { reason: 'not_retired' });
+    if ((row.updated_at ?? row.created_at) !== expected) return staleConflict();
+
+    const status = wanted.value || (row.condition === 'Damaged' ? 'Damaged'
+      : USABLE_CONDITIONS.includes(row.condition) ? 'Available' : 'Under Maintenance');
+    checkWhole({ ...row, status, assigned_staff_id: null, assigned_mechanic_id: null }, errors);
+    if (Object.keys(errors).length) return unprocessable('The equipment could not be reactivated.', errors);
+    const clash = await serialClash(env, row.serial_no, id);
+    if (clash) return serialConflict(clash);
+
+    const now = nextStamp(row.updated_at);
+    const who = actorName(request);
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE tools
+            SET status = ?3, retired_at = NULL, retired_reason = NULL, updated_by = ?4, updated_at = ?5
+          WHERE id = ?1 AND coalesce(updated_at, created_at) = ?2 AND status = 'Retired'`
+      ).bind(id, expected, status, who, now),
+      eventIfLanded(env, id, now, who, 'reactivate', `Returned to service as ${status}`),
+    ]);
+    if (!results[0].meta || results[0].meta.changes !== 1) return staleConflict();
+    return ok(toRecord(await findRow(env, id)));
+  } catch (err) {
+    if (/UNIQUE constraint failed/i.test(String(err && err.message))) {
+      return conflict('Another item in service already carries this serial number.', { reason: 'duplicate_serial' });
+    }
+    const mapped = constraintFailure(err);
+    if (mapped) return mapped;
+    console.error('POST /api/tools/:id/reactivate failed:', err && err.message);
+    return fail('database_error', 'Could not reactivate the equipment.', 500);
+  }
+}
+
+/* ---------- DELETE /api/tools/:id (0021) ---------- */
+
+export async function deleteTool(request, env, rawId) {
+  if (request.method !== 'DELETE') return methodNotAllowed(['GET', 'PUT', 'DELETE']);
+  if (!env.DB) return noDatabase();
+  // The router already required tools.delete; checked again so this handler is safe on its own.
+  if (!can(principalOf(request), 'tools.delete')) {
+    return fail('forbidden', 'Your role cannot delete equipment.', 403);
+  }
+  const id = readId(rawId);
+  if (!id) return fail('invalid_id', 'That is not a tool id.', 400);
+  const url = new URL(request.url);
+  const expected = url.searchParams.get('expectedUpdatedAt');
+  if (expected !== null && (expected === '' || expected.length > 40)) {
+    return fail('invalid_parameter', '`expectedUpdatedAt` is not valid.', 400);
+  }
+
+  try {
+    const row = await findRow(env, id);
+    if (!row) return fail('not_found', 'No tool with that id.', 404);
+    if (row.assigned_staff_id || row.assigned_mechanic_id || row.status === 'In Use') {
+      return conflict('This equipment is assigned or in use. Return it before deleting it.', { reason: 'tool_in_use' });
+    }
+    if (expected !== null && (row.updated_at ?? row.created_at) !== expected) return staleConflict();
+
+    const who = actorName(request);
+    const summary = `Deleted ${row.name} (${row.category})${row.serial_no ? `, S/N ${row.serial_no}` : ''}, status ${row.status}`;
+    const guard = `id = ?1 AND status <> 'In Use' AND assigned_staff_id IS NULL AND assigned_mechanic_id IS NULL
+                   AND coalesce(updated_at, created_at) = ?2`;
+    const stamp = row.updated_at ?? row.created_at;
+    // The history entry is written first and only for a row the delete will
+    // remove (the same guard, the same transaction): it outlives the row.
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO tool_events (tool_id, occurred_at, actor, action, summary)
+         SELECT ?1, ?3, ?4, 'delete', ?5 FROM tools WHERE ${guard}`
+      ).bind(id, stamp, nowIso(), who, clip(summary)),
+      env.DB.prepare(`DELETE FROM tools WHERE ${guard}`).bind(id, stamp),
+    ]);
+    if (!results[1].meta || results[1].meta.changes !== 1) return staleConflict();
+    return ok({ id, deleted: true });
+  } catch (err) {
+    console.error('DELETE /api/tools/:id failed:', err && err.message);
+    return fail('database_error', 'Could not delete the equipment.', 500);
   }
 }

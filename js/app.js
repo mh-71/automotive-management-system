@@ -79,10 +79,11 @@ const App = (() => {
   const NOTIFY_POLL_MS = 60000;
 
   /* Workshop Assets, shown after Customer CRM and before Notifications Center:
-     an expandable group drawn like Customer CRM and Staff Management. Every
-     entry is a DEMO page (fictional sample data held in memory, nothing saved
-     or sent): Tools & Equipment is the original page (pages/workshop-tools.html,
-     at its unchanged address); the other five share js/workshop-assets-demo.js.
+     an expandable group drawn like Customer CRM and Staff Management.
+     Tools & Equipment (pages/workshop-tools.html) and Equipment Inventory
+     (pages/equipment-inventory.html, 0021) are REAL pages on the same register
+     (GET /api/tools). The other four are still DEMO pages (fictional sample
+     data held in memory, nothing saved or sent) sharing js/workshop-assets-demo.js.
      An entry without an href would be shown as "Coming soon", never as a link. */
   const ASSETS_ICON = '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>';
   const ASSETS = [
@@ -997,7 +998,8 @@ const App = (() => {
   const ONLINE_ONLY = {
     estimates: 'Estimates', 'estimate-create': 'Estimates', 'estimate-details': 'Estimates',
     'staff-attendance': 'Attendance',
-    'workshop-tools': 'Workshop Assets', 'equipment-inventory': 'Workshop Assets', 'maintenance-repairs': 'Workshop Assets',
+    // Equipment Inventory (0021) is not listed: offline it says so itself and still lets equipment be added (queued).
+    'workshop-tools': 'Workshop Assets', 'maintenance-repairs': 'Workshop Assets',
     'asset-assignment': 'Workshop Assets', 'asset-history': 'Workshop Assets', 'asset-reports': 'Workshop Assets',
     notifications: 'Notifications',
     'staff-management': 'Staff', 'staff-list': 'Staff', 'staff-add': 'Staff', 'staff-performance': 'Staff',

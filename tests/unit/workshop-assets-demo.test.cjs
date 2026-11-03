@@ -1,4 +1,6 @@
-/* workshop-assets-demo — the five Workshop Assets demo pages.
+/* workshop-assets-demo — the four Workshop Assets demo pages.
+   (Equipment Inventory left this list in 0021: it is a real page now,
+   covered by tests/unit/equipment-inventory-ui.test.cjs.)
 
    What must hold:
      1. Each page exists, loads the shared engine and its own script and
@@ -20,14 +22,13 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
 const PAGES = {
-  'equipment-inventory': 'Equipment Inventory',
   'maintenance-repairs': 'Maintenance &amp; Repairs',
   'asset-assignment': 'Asset Assignment',
   'asset-history': 'Asset History',
   'asset-reports': 'Asset Reports',
 };
 
-console.log('=== workshop-assets-demo: the five Workshop Assets demo pages ===\n');
+console.log('=== workshop-assets-demo: the four Workshop Assets demo pages ===\n');
 
 console.log('-- 1. the pages --');
 const toolsHead = read('pages/workshop-tools.html').split('\n<body')[0];
@@ -88,14 +89,6 @@ console.log('\n-- 3. shared helpers --');
 
 console.log('\n-- 4. sample data --');
 const demoPerson = p => !p || / \(Demo\)$/.test(p);
-{
-  const E = load('js/equipment-inventory-ui.js', 'EquipmentInventoryUI');
-  ok('Equipment Inventory: the eight agreed machines', ['Two Post Car Lift', 'Four Post Car Lift', 'Air Compressor', 'Wheel Alignment Machine', 'Tyre Changer', 'AC Recovery Machine', 'Hydraulic Press', 'Engine Crane'].every(n => E.SAMPLE.some(r => r.name === n)), '');
-  ok('   ...every code is DEMO-EQ-nnn', E.SAMPLE.every(r => /^DEMO-EQ-\d{3}$/.test(r.code)), '');
-  const s = E.summary(E.SAMPLE);
-  check('   ...units add up', s.available + s.inUse + s.maintenance, s.total);
-  check('   ...purchase value', s.value, E.SAMPLE.reduce((n, r) => n + r.qty * r.price, 0));
-}
 {
   const M = load('js/maintenance-repairs-ui.js', 'MaintenanceRepairsUI');
   ok('Maintenance & Repairs: fictional records and technicians', M.SAMPLE.every(r => /^DEMO-MNT-\d{3}$/.test(r.id) && demoPerson(r.tech)), '');

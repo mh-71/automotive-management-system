@@ -776,7 +776,7 @@ console.log('\n-- 10. The money and the links are left alone --');
 {
   const routes = (await (await call('/api/health', { DB: stubDB() }, 'GET')).json()).data.routes;
   check('health advertises the status route', routes.includes('POST /api/job-cards/:id/status'), true);
-  check('   ...and the registry is 165 routes', routes.length, 165);
+  check('   ...and the registry is 167 routes', routes.length, 167);
   // C-7 added voiding an invoice and C-8 voiding and linking a payment.
   // Every action route is a POST under a record, and no collection has more
   // than the ones it declares.
@@ -801,6 +801,7 @@ console.log('\n-- 10. The money and the links are left alone --');
       'POST /api/leave-requests/:id/approve', 'POST /api/leave-requests/:id/reject',
       // 0013: an administrator retiring a tool.
       'POST /api/tools/:id/retire',
+      'POST /api/tools/:id/reactivate',
       // 0014: the Messenger inbox's per-conversation routes.
       'GET /api/messenger/conversations/:id/messages', 'POST /api/messenger/conversations/:id/reply',
       'POST /api/messenger/conversations/:id/read', 'PUT /api/messenger/conversations/:id/status',
