@@ -48,7 +48,7 @@ if (!DatabaseSync) {
 }
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const MIGRATIONS = readdirSync(join(ROOT, 'migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f) && f.slice(0, 4) <= '0016').sort();
+const MIGRATIONS = readdirSync(join(ROOT, 'migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f) && f.slice(0, 4) <= '0022').sort();
 const TOKEN = 'unit-test-token';
 const SITE = 'https://taqwa.autos';
 const tomorrow = (() => { const d = new Date(Date.now() + 2 * 86400000); return d.toISOString().slice(0, 10); })();
@@ -128,7 +128,8 @@ const BOOKING = (extra = {}) => ({ formType: 'booking', name: 'Test Customer One
   const h = fresh();
   check('the submissions table has the planned columns', h.all('PRAGMA table_info(website_form_submissions)').map((c) => c.name),
     ['id', 'form_type', 'name', 'phone', 'phone_digits', 'email', 'service', 'vehicle', 'reg_no', 'preferred_date', 'preferred_time', 'message',
-      'source_page', 'status', 'notes', 'ip_hash', 'created_at', 'updated_at', 'updated_by']);
+      'source_page', 'status', 'notes', 'ip_hash', 'created_at', 'updated_at', 'updated_by',
+      'assigned_to_id', 'assigned_to_name', 'assigned_at', 'assigned_by']);
   check('the events table has the planned columns', h.all('PRAGMA table_info(website_form_events)').map((c) => c.name),
     ['id', 'submission_id', 'action', 'from_status', 'to_status', 'actor', 'created_at']);
   check('a WEB counter starts at 0', h.one("SELECT prefix, last_value FROM id_counters WHERE collection='websiteForms'"), { prefix: 'WEB', last_value: 0 });
