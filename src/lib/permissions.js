@@ -41,6 +41,7 @@ export const CATALOG = [
   { key: 'mechanics', label: 'Mechanics', actions: { view: 'See mechanics', create: 'Add mechanics', edit: 'Edit mechanics', delete: 'Delete mechanics' } },
   { key: 'crm', label: 'Customer CRM', actions: { view: 'See follow-ups, tasks and CRM pages', create: 'Add follow-ups and tasks', edit: 'Update, complete, cancel and log contacts' } },
   { key: 'inbox', label: 'Social Inbox', actions: { view: 'See website enquiries, Messenger and WhatsApp', edit: 'Reply, change status and assign' } },
+  { key: 'bookings', label: 'Bookings', actions: { view: 'See booking requests, their notes and history', create: 'Enter booking requests (phone, walk-in, manual)', edit: 'Assign bookings, link customers and vehicles, add notes', manage: 'Confirm, reject, cancel, reschedule and complete bookings' } },
   { key: 'staff', label: 'Staff', actions: { view: 'See staff and their details', create: 'Add staff', edit: 'Edit staff' } },
   { key: 'attendance', label: 'Attendance', actions: { view: 'See attendance', create: 'Record attendance', edit: 'Correct attendance' } },
   { key: 'leave', label: 'Leave', actions: { view: 'See leave requests', create: 'Submit leave requests', approve: 'Approve or reject leave' } },
@@ -86,7 +87,7 @@ export const DEFAULT_ROLES = [
   { id: 'ROL-0003', name: 'Manager', system: false, description: 'Day-to-day operations, approvals and staff; no deletions of money records, accounts or settings.',
     permissions: perms('dashboard:view', 'customers:view,create,edit', 'vehicles:view,create,edit', 'appointments:view,create,edit',
       'job_cards:view,create,edit,manage', 'services:view,create,edit', 'estimates:*', 'invoices:view,create,edit', 'payments:view,create',
-      'expenses:view,create', 'inventory:view,create,edit,manage', 'mechanics:view,create,edit', 'crm:*', 'inbox:*', 'staff:view',
+      'expenses:view,create', 'inventory:view,create,edit,manage', 'mechanics:view,create,edit', 'crm:*', 'inbox:*', 'bookings:*', 'staff:view',
       'attendance:*', 'leave:*', 'activity_log:view', 'tools:view,create,edit,export', 'notifications:view', 'reports:*', 'settings:view') },
   { id: 'ROL-0004', name: 'Accountant', system: false, description: 'Invoices, payments and expenses, with read access to the work they bill for.',
     permissions: perms('dashboard:view', 'customers:view', 'vehicles:view', 'appointments:view', 'job_cards:view', 'services:view',
@@ -94,7 +95,7 @@ export const DEFAULT_ROLES = [
   { id: 'ROL-0005', name: 'Service Advisor', system: false, description: 'Front desk: customers, vehicles, bookings, job cards, estimates and taking payment.',
     permissions: perms('dashboard:view', 'customers:view,create,edit', 'vehicles:view,create,edit', 'appointments:view,create,edit',
       'job_cards:view,create,edit,manage', 'services:view', 'estimates:view,create,edit,approve', 'invoices:view,create', 'payments:view,create',
-      'inventory:view', 'mechanics:view', 'crm:*', 'inbox:*', 'notifications:view') },
+      'inventory:view', 'mechanics:view', 'crm:*', 'inbox:*', 'bookings:*', 'notifications:view') },
   { id: 'ROL-0006', name: 'Store Manager', system: false, description: 'Parts, stock and workshop tools.',
     permissions: perms('dashboard:view', 'job_cards:view', 'services:view', 'inventory:*', 'mechanics:view', 'expenses:view,create',
       'tools:*', 'notifications:view') },
@@ -102,7 +103,7 @@ export const DEFAULT_ROLES = [
     permissions: perms('dashboard:view', 'customers:view', 'vehicles:view', 'appointments:view', 'job_cards:view,manage', 'services:view',
       'inventory:view', 'mechanics:view', 'tools:view', 'notifications:view') },
   { id: 'ROL-0008', name: 'Staff', system: false, description: 'Basic front-office access: look up customers and vehicles, book appointments.',
-    permissions: perms('dashboard:view', 'customers:view', 'vehicles:view', 'appointments:view,create', 'notifications:view') },
+    permissions: perms('dashboard:view', 'customers:view', 'vehicles:view', 'appointments:view,create', 'bookings:view', 'notifications:view') },
 ];
 
 /* ---------------------------------------------------------------
@@ -180,7 +181,12 @@ export const COLLECTION_PERMISSIONS = {
   'leave-requests': { view: 'leave.view', create: 'leave.create', actions: { approve: 'leave.approve', reject: 'leave.approve' } },
   'activity-log': { view: 'activity_log.view' },
   'website-forms': { view: 'inbox.view', update: 'inbox.edit' },
+  bookings: { view: 'bookings.view', create: 'bookings.create', update: 'bookings.edit', actions: { status: 'bookings.manage', notes: 'bookings.edit' } },
   tools: { view: 'tools.view', create: 'tools.create', update: 'tools.edit', remove: 'tools.delete', actions: { retire: 'tools.manage', reactivate: 'tools.manage' } },
+  // Maintenance & Repairs (0024): part of Workshop Assets, so its permissions -- no new ones.
+  'tool-maintenance': { view: 'tools.view', create: 'tools.edit', update: 'tools.edit', remove: 'tools.delete', actions: { status: 'tools.edit' } },
+  // Asset Assignment (0025): also Workshop Assets -- tools.edit is "Edit, assign and return".
+  'tool-assignments': { view: 'tools.view', create: 'tools.edit', update: 'tools.edit', actions: { return: 'tools.edit', cancel: 'tools.edit' } },
   roles: { view: 'roles.view', create: 'roles.create', update: 'roles.edit', remove: 'roles.delete' },
 };
 

@@ -7,9 +7,16 @@
      GET /api/website-forms         the list (search, status, form type,
                                     date range, paging, status counts)
      GET /api/website-forms/:id     one enquiry, with its history
-     PUT /api/website-forms/:id     status and internal notes
+     PUT /api/website-forms/:id     status, internal notes and the member
+                                    of staff it is assigned to
                                     (expectedUpdatedAt: an edit made from
                                     an old copy is refused, not lost)
+
+   Staff to assign are read from the roster (Storage.load('staff'), active
+   only); the Worker checks the choice again. The list refreshes itself
+   every POLL_MS while the page is visible, so a new enquiry from the
+   website appears without pressing Refresh; an open enquiry is refreshed
+   too unless its form has unsaved changes.
 
    Enquiries arrive from the public website through the Worker's public
    endpoint (POST /api/forms/submit), never through this page.
@@ -22,6 +29,7 @@
 const InboxWebsiteForms = (() => {
 
   const PAGE_SIZE = 50;
+  const POLL_MS = 30000;
   const STATUSES = ['New', 'Contacted', 'Confirmed', 'Rejected'];
   const TYPE_LABEL = { booking: 'Booking', quote: 'Quote', contact: 'Contact' };
   const ACTION_LABEL = { submitted: 'Submitted from the website', status: 'Status changed', notes: 'Notes updated' };
@@ -29,8 +37,9 @@ const InboxWebsiteForms = (() => {
   /* ---------- pure helpers (exported for the unit suite) ---------- */
 
   /** Query string parameters for the list. Empty filters are left out. */
-  function buildQuery({ q = '', status = '', type = '', from = '', to = '', limit = PAGE_SIZE, offset = 0 } = {}) {
+  function buildQuery({ q = '', status = '', type = '', from = '', to = '', assigned = '', limit = PAGE_SIZE, offset = 0 } = {}) {
     const out = { limit: String(limit), offset: String(offset) };
+    if (assigned) out.assigned = assigned;
     if (q.trim()) out.q = q.trim();
     if (status) out.status = status;
     if (type) out.type = type;
@@ -52,7 +61,7 @@ const InboxWebsiteForms = (() => {
         <span class="wf-row__top"><span class="wf-row__name">${esc(r.name)}</span><span class="wf-status wf-status--${statusTone(r.status)}">${esc(r.status)}</span></span>
         <span class="wf-row__what">${esc(what)}</span>
         ${r.message ? `<span class="wf-row__msg">${esc(r.message)}</span>` : ''}
-        <span class="wf-row__meta">${esc(r.id)} · ${esc(whenLabel(r.createdAt))}</span>
+        <span class="wf-row__meta">${esc(r.id)} · ${esc(whenLabel(r.createdAt))}${r.assignedToName ? ` · ${esc(r.assignedToName)}` : ''}</span>
       </button></li>`;
   }
 
@@ -67,8 +76,12 @@ const InboxWebsiteForms = (() => {
       + item('Registration', esc(r.regNo))
       + item('Preferred date', r.preferredDate ? esc(Utils.fmtDate(r.preferredDate)) + (r.preferredTime ? ` at ${esc(r.preferredTime)}` : '') : '')
       + item('Received', esc(whenLabel(r.createdAt)))
+      + item('Source', 'Website')
+      + item('Website page', esc(r.sourcePage))
       + item('Reference', esc(r.id))
-      + item('Website page', esc(r.sourcePage));
+      + item('Assigned to', r.assignedToName
+        ? esc(r.assignedToName) + (r.assignedBy ? ` <small>(by ${esc(r.assignedBy)}${r.assignedAt ? `, ${esc(whenLabel(r.assignedAt))}` : ''})</small>` : '')
+        : '');
   }
 
   function historyHtml(events) {
@@ -79,12 +92,12 @@ const InboxWebsiteForms = (() => {
 
   /* ---------- page state ---------- */
 
-  const state = { q: '', status: '', type: '', from: '', to: '', rows: [], total: 0, summary: null, error: null, loading: false, selected: null };
-  let seq = 0, searchTimer = null;
+  const state = { q: '', status: '', type: '', from: '', to: '', assigned: '', rows: [], total: 0, summary: null, error: null, loading: false, selected: null };
+  let seq = 0, searchTimer = null, pollTimer = null, staffList = [];
   const $ = (id) => document.getElementById(id);
   const esc = (s) => Utils.esc(s);
 
-  const filtered = () => Boolean(state.q || state.status || state.type || state.from || state.to);
+  const filtered = () => Boolean(state.q || state.status || state.type || state.from || state.to || state.assigned);
 
   function renderCounts() {
     const s = state.summary || {};
@@ -95,7 +108,7 @@ const InboxWebsiteForms = (() => {
   }
 
   function renderList() {
-    $('wfClear').hidden = !(state.q || state.type || state.from || state.to);
+    $('wfClear').hidden = !(state.q || state.type || state.from || state.to || state.assigned);
     const box = $('wfListState');
     if (state.loading && !state.rows.length) {
       box.innerHTML = '<div class="wf-skel"><span></span><span></span><span></span></div>';
@@ -121,16 +134,19 @@ const InboxWebsiteForms = (() => {
     $('wfMore').hidden = state.rows.length >= state.total;
   }
 
-  async function load({ append = false } = {}) {
+  async function load({ append = false, quiet = false } = {}) {
     if (!Storage.isApi()) { state.error = { code: Storage.isLocked() ? 'locked' : 'no_api' }; state.loading = false; renderList(); return false; }
     const my = ++seq;
     state.loading = true; state.error = null;
-    if (!append) renderList();
+    if (!append && !quiet) renderList();
     const qs = new URLSearchParams(buildQuery({ ...state, offset: append ? state.rows.length : 0 })).toString();
     const res = await Api.get(`/website-forms?${qs}`);
     if (my !== seq) return false;
     state.loading = false;
-    if (!res.ok) { state.error = res; state.rows = []; renderList(); return false; }
+    if (!res.ok) {
+      if (quiet && state.rows.length) return false;   // a background refresh failed: keep what is shown
+      state.error = res; state.rows = []; renderList(); return false;
+    }
     const rows = Array.isArray(res.data) ? res.data : [];
     state.rows = append ? [...state.rows, ...rows] : rows;
     state.total = res.meta.total || 0;
@@ -157,13 +173,16 @@ const InboxWebsiteForms = (() => {
     $('wfdMessage').textContent = r.message;
     $('wfdStatus').value = r.status;
     $('wfdNotes').value = r.notes;
+    renderStaffOptions(r.assignedToId);
+    $('wfdAssigned').value = r.assignedToId || '';
     $('wfManage').querySelector('[data-err="manage"]').textContent = '';
     $('wfdHistory').innerHTML = historyHtml(r.history);
   }
 
-  async function open(id) {
+  async function open(id, { quiet = false } = {}) {
     const res = await Api.get(`/website-forms/${encodeURIComponent(id)}`);
-    if (!res.ok) { Utils.toast(res.message || 'That enquiry could not be opened.', 'error'); return; }
+    if (!res.ok) { if (!quiet) Utils.toast(res.message || 'That enquiry could not be opened.', 'error'); return; }
+    if (quiet && (!state.selected || state.selected.id !== id || dirty())) return;
     state.selected = res.data;
     renderDetail();
     renderList();
@@ -176,7 +195,8 @@ const InboxWebsiteForms = (() => {
       const body = { expectedUpdatedAt: r.updatedAt };
       if ($('wfdStatus').value !== r.status) body.status = $('wfdStatus').value;
       if ($('wfdNotes').value.trim() !== (r.notes || '')) body.notes = $('wfdNotes').value.trim();
-      if (!('status' in body) && !('notes' in body)) { Utils.toast('Nothing to save.', 'info'); return; }
+      if (($('wfdAssigned').value || '') !== (r.assignedToId || '')) body.assignedToId = $('wfdAssigned').value || null;
+      if (!('status' in body) && !('notes' in body) && !('assignedToId' in body)) { Utils.toast('Nothing to save.', 'info'); return; }
       const res = await Api.put(`/website-forms/${encodeURIComponent(r.id)}`, body);
       if (!res.ok) {
         const msg = res.fields ? Object.values(res.fields)[0] : (res.message || 'The enquiry could not be saved.');
@@ -195,6 +215,59 @@ const InboxWebsiteForms = (() => {
     });
   }
 
+  /* ---------- staff for assignment ---------- */
+
+  /** Does the open enquiry's form hold changes not saved yet? */
+  function dirty() {
+    const r = state.selected;
+    if (!r) return false;
+    return $('wfdStatus').value !== r.status || $('wfdNotes').value.trim() !== (r.notes || '')
+      || ($('wfdAssigned').value || '') !== (r.assignedToId || '');
+  }
+
+  /** Active staff and mechanics from the roster, by name. A failure leaves only "Not assigned". */
+  async function loadStaff() {
+    const res = await Storage.load('staff');
+    if (!res || !res.ok) return false;
+    staffList = (Storage.getData('staff') || [])
+      .filter((p) => p && p.status === 'Active')
+      .map((p) => ({ id: p.id, name: p.name || p.id }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    renderAssignedFilter();
+    if (state.selected && !dirty()) renderDetail();
+    return true;
+  }
+
+  /** The Assign options: everyone active, plus whoever is assigned now even if no longer active. */
+  function renderStaffOptions(currentId) {
+    const opts = [...staffList];
+    if (currentId && !opts.some((p) => p.id === currentId)) {
+      opts.unshift({ id: currentId, name: (state.selected && state.selected.assignedToName) || currentId });
+    }
+    $('wfdAssigned').innerHTML = '<option value="">Not assigned</option>'
+      + opts.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.id)})</option>`).join('');
+  }
+
+  function renderAssignedFilter() {
+    const sel = $('wfAssigned');
+    const keep = state.assigned;
+    sel.innerHTML = '<option value="">Anyone</option><option value="none">Not assigned</option>'
+      + staffList.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+    sel.value = keep;
+  }
+
+  /* ---------- auto-refresh ---------- */
+
+  function startPolling() {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (state.loading || !Storage.isApi()) return;
+      load({ quiet: true });
+      if (state.selected) open(state.selected.id, { quiet: true });
+    }, POLL_MS);
+  }
+
   /* ---------- events ---------- */
 
   function bind() {
@@ -210,12 +283,12 @@ const InboxWebsiteForms = (() => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => { state.q = $('wfSearch').value; load(); }, 300);
     });
-    for (const [id, key] of [['wfType', 'type'], ['wfFrom', 'from'], ['wfTo', 'to']]) {
+    for (const [id, key] of [['wfType', 'type'], ['wfFrom', 'from'], ['wfTo', 'to'], ['wfAssigned', 'assigned']]) {
       $(id).addEventListener('change', () => { state[key] = $(id).value; load(); });
     }
     $('wfClear').addEventListener('click', () => {
-      state.q = state.type = state.from = state.to = '';
-      $('wfSearch').value = ''; $('wfType').value = ''; $('wfFrom').value = ''; $('wfTo').value = '';
+      state.q = state.type = state.from = state.to = state.assigned = '';
+      $('wfSearch').value = ''; $('wfType').value = ''; $('wfFrom').value = ''; $('wfTo').value = ''; $('wfAssigned').value = '';
       load();
     });
     $('wfRefresh').addEventListener('click', async () => { await load(); if (state.selected) await open(state.selected.id); });
@@ -231,10 +304,13 @@ const InboxWebsiteForms = (() => {
     bind();
     state.loading = true;
     renderList();
-    Storage.ready(() => load());
+    Storage.ready(() => {
+      load();
+      if (Storage.isApi()) { loadStaff(); startPolling(); }
+    });
   }
 
-  return { STATUSES, buildQuery, rowHtml, factsHtml, historyHtml, init, _state: state, load, open };
+  return { STATUSES, POLL_MS, buildQuery, rowHtml, factsHtml, historyHtml, init, _state: state, load, open };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { InboxWebsiteForms };

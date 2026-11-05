@@ -23,9 +23,16 @@
    STAFF (behind the auth gate):
 
      GET  /api/website-forms          list: q, status, type, from, to,
+                                      assigned (staff id | "none"),
                                       limit, offset; summary counts
      GET  /api/website-forms/:id      one enquiry, with its history
-     PUT  /api/website-forms/:id      { status?, notes?, expectedUpdatedAt }
+     PUT  /api/website-forms/:id      { status?, notes?, assignedToId?,
+                                        expectedUpdatedAt }
+
+   Assignment (migration 0022): an enquiry is assigned to an ACTIVE
+   employee or mechanic from the roster (checked here, not trusted from
+   the browser), stored with their name as it was when assigned and who
+   assigned it, when. `assignedToId: null` (or "") un-assigns.
 
    No delete: an unwanted enquiry is Rejected and kept. Each status
    change and note edit is recorded in website_form_events with who and
@@ -49,11 +56,13 @@ const PHONE = /^[0-9+\-\s()]{6,20}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const FORM_ID = /^WEB-\d{1,10}$/;
+const STAFF_ID = /^[A-Z]{2,5}-\d{1,10}$/;
 const PUBLIC_KEYS = ['formType', 'name', 'phone', 'email', 'service', 'vehicle', 'regNo', 'preferredDate', 'preferredTime',
   'message', 'sourcePage', 'company', 'startedAt'];
 
 const COLUMNS = `id, form_type, name, phone, phone_digits, email, service, vehicle, reg_no, preferred_date, preferred_time,
-  message, source_page, status, notes, created_at, updated_at, updated_by`;
+  message, source_page, status, notes, assigned_to_id, assigned_to_name, assigned_at, assigned_by,
+  created_at, updated_at, updated_by`;
 
 function toRecord(row) {
   return {
@@ -71,7 +80,13 @@ function toRecord(row) {
     sourcePage: row.source_page || '',
     status: row.status,
     notes: row.notes || '',
+    source: 'website',
+    assignedToId: row.assigned_to_id || '',
+    assignedToName: row.assigned_to_name || '',
+    assignedAt: row.assigned_at || '',
+    assignedBy: row.assigned_by || '',
     createdAt: row.created_at,
+    submittedAt: row.created_at,
     updatedAt: row.updated_at || row.created_at,
     updatedBy: row.updated_by || '',
   };
@@ -89,7 +104,7 @@ function allowedOrigins(env) {
 }
 
 /** The CORS headers for this request's Origin, or null when it is not one of ours. */
-function corsHeaders(request, env) {
+export function corsHeaders(request, env) {
   const origin = request.headers.get('origin');
   if (!origin) return {};                     // not a browser cross-origin call
   if (!allowedOrigins(env).includes(origin)) return null;
@@ -102,7 +117,7 @@ function corsHeaders(request, env) {
   };
 }
 
-const withHeaders = (response, extra) => {
+export const withHeaders = (response, extra) => {
   const headers = new Headers(response.headers);
   for (const [k, v] of Object.entries(extra || {})) headers.set(k, v);
   return new Response(response.body, { status: response.status, headers });
@@ -141,7 +156,7 @@ function readSubmission(body) {
   return { values: v, errors: e };
 }
 
-async function ipHash(request, env) {
+export async function ipHash(request, env) {
   const ip = request.headers.get('cf-connecting-ip') || '';
   if (!ip) return null;
   const salt = typeof env?.AUTH_SECRET === 'string' && env.AUTH_SECRET ? env.AUTH_SECRET : 'taqwa-forms';
@@ -266,6 +281,10 @@ export async function listWebsiteForms(request, env, url) {
     range[k] = r.value;
   }
   if (range.from && range.to && range.to < range.from) return fail('invalid_parameter', '`to` must be on or after `from`.', 400);
+  const assigned = url.searchParams.get('assigned') || null;
+  if (assigned !== null && assigned !== 'none' && !STAFF_ID.test(assigned)) {
+    return fail('invalid_parameter', '`assigned` must be a staff id or "none".', 400);
+  }
   const q = (url.searchParams.get('q') || '').trim();
   if (q.length > LIMITS.q) return fail('invalid_parameter', `\`q\` must be ${LIMITS.q} characters or fewer.`, 400);
   const needle = q ? `%${q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
@@ -281,11 +300,12 @@ export async function listWebsiteForms(request, env, url) {
            OR lower(coalesce(reg_no, '')) LIKE ?5 ESCAPE '\\' OR lower(coalesce(email, '')) LIKE ?5 ESCAPE '\\'
            OR lower(coalesce(service, '')) LIKE ?5 ESCAPE '\\' OR lower(coalesce(vehicle, '')) LIKE ?5 ESCAPE '\\'
            OR lower(coalesce(message, '')) LIKE ?5 ESCAPE '\\'
-           OR (?6 IS NOT NULL AND phone_digits LIKE ?6))`;
-  const binds = [status, type, range.from ? dhakaDayStart(range.from) : null, range.to ? dhakaDayStart(nextDay(range.to)) : null, needle, digitNeedle];
+           OR (?6 IS NOT NULL AND phone_digits LIKE ?6))
+      AND (?7 IS NULL OR (?7 = 'none' AND assigned_to_id IS NULL) OR assigned_to_id = ?7)`;
+  const binds = [status, type, range.from ? dhakaDayStart(range.from) : null, range.to ? dhakaDayStart(nextDay(range.to)) : null, needle, digitNeedle, assigned];
   try {
     const { results } = await env.DB.prepare(
-      `SELECT ${COLUMNS} FROM website_form_submissions ${where} ORDER BY created_at DESC, id DESC LIMIT ?7 OFFSET ?8`
+      `SELECT ${COLUMNS} FROM website_form_submissions ${where} ORDER BY created_at DESC, id DESC LIMIT ?8 OFFSET ?9`
     ).bind(...binds, limit.value, offset.value).all();
     const total = await env.DB.prepare(`SELECT count(*) AS n FROM website_form_submissions ${where}`).bind(...binds).first();
     const sums = await env.DB.prepare(
@@ -332,7 +352,17 @@ export async function getWebsiteForm(request, env, rawId) {
   }
 }
 
-/* ---------- staff: status and notes ---------- */
+/* ---------- staff: status, notes and assignment ---------- */
+
+/** An ACTIVE employee (not a mechanic's own staff profile) or mechanic, or null. */
+async function activeStaff(env, id) {
+  return env.DB.prepare(
+    `SELECT id, name FROM staff WHERE id = ?1 AND mechanic_id IS NULL AND status = 'Active'
+     UNION ALL
+     SELECT id, name FROM mechanics WHERE id = ?1 AND status = 'Active'
+     LIMIT 1`
+  ).bind(id).first();
+}
 
 export async function updateWebsiteForm(request, env, rawId) {
   if (request.method !== 'PUT') return methodNotAllowed(['GET', 'PUT']);
@@ -342,7 +372,7 @@ export async function updateWebsiteForm(request, env, rawId) {
   if (parsed.error) return fail('invalid_body', parsed.error, 400);
   const body = parsed.value;
   const errors = {};
-  for (const k of Object.keys(body)) if (!['status', 'notes', 'expectedUpdatedAt'].includes(k)) errors[k] = 'This field cannot be changed here.';
+  for (const k of Object.keys(body)) if (!['status', 'notes', 'assignedToId', 'expectedUpdatedAt'].includes(k)) errors[k] = 'This field cannot be changed here.';
   if (body.status !== undefined && !FORM_STATUSES.includes(body.status)) errors.status = `Choose one of: ${FORM_STATUSES.join(', ')}.`;
   let notes;
   if (body.notes !== undefined) {
@@ -350,10 +380,16 @@ export async function updateWebsiteForm(request, env, rawId) {
     else if ((body.notes || '').trim().length > LIMITS.notes) errors.notes = `Keep this to ${LIMITS.notes} characters or fewer.`;
     else notes = (body.notes || '').trim() || null;
   }
+  let assignTo;               // undefined: not asked; null: un-assign; string: a staff id to check
+  if (body.assignedToId !== undefined) {
+    if (body.assignedToId === null || body.assignedToId === '') assignTo = null;
+    else if (typeof body.assignedToId !== 'string' || !STAFF_ID.test(body.assignedToId)) errors.assignedToId = 'Choose a member of staff.';
+    else assignTo = body.assignedToId;
+  }
   if (typeof body.expectedUpdatedAt !== 'string' || !body.expectedUpdatedAt || body.expectedUpdatedAt.length > 40) {
     errors.expectedUpdatedAt = '`expectedUpdatedAt` is required: send the updatedAt value the change was made from.';
   }
-  if (!Object.keys(errors).length && body.status === undefined && body.notes === undefined) errors.status = 'Nothing to change.';
+  if (!Object.keys(errors).length && body.status === undefined && body.notes === undefined && body.assignedToId === undefined) errors.status = 'Nothing to change.';
   if (Object.keys(errors).length) return unprocessable('The enquiry could not be updated.', errors);
 
   try {
@@ -364,15 +400,25 @@ export async function updateWebsiteForm(request, env, rawId) {
     }
     const statusChanged = body.status !== undefined && body.status !== row.status;
     const notesChanged = notes !== undefined && notes !== (row.notes || null);
-    if (!statusChanged && !notesChanged) return ok(await withHistory(env, row));
+    const assignChanged = assignTo !== undefined && assignTo !== (row.assigned_to_id || null);
+    let person = null;
+    if (assignChanged && assignTo !== null) {
+      person = await activeStaff(env, assignTo);
+      if (!person) return unprocessable('The enquiry could not be updated.', { assignedToId: 'That is not an active member of staff.' });
+    }
+    if (!statusChanged && !notesChanged && !assignChanged) return ok(await withHistory(env, row));
     const who = actorName(request);
     let now = nowIso();
     if (now <= (row.updated_at || '')) now = new Date(Date.parse(row.updated_at) + 1).toISOString();
     const statements = [
       env.DB.prepare(
-        `UPDATE website_form_submissions SET status = ?3, notes = ?4, updated_at = ?5, updated_by = ?6
+        `UPDATE website_form_submissions SET status = ?3, notes = ?4, updated_at = ?5, updated_by = ?6,
+                assigned_to_id = ?7, assigned_to_name = ?8, assigned_at = ?9, assigned_by = ?10
           WHERE id = ?1 AND coalesce(updated_at, created_at) = ?2`
-      ).bind(row.id, body.expectedUpdatedAt, statusChanged ? body.status : row.status, notesChanged ? notes : row.notes, now, who),
+      ).bind(row.id, body.expectedUpdatedAt, statusChanged ? body.status : row.status, notesChanged ? notes : row.notes, now, who,
+        ...(assignChanged
+          ? (person ? [person.id, String(person.name || person.id).slice(0, 120), now, who] : [null, null, now, who])
+          : [row.assigned_to_id || null, row.assigned_to_name || null, row.assigned_at || null, row.assigned_by || null])),
     ];
     // History rows are written only if the guarded update itself applied (same batch, same transaction).
     const guard = 'EXISTS (SELECT 1 FROM website_form_submissions WHERE id = ?1 AND updated_at = ?2 AND updated_by = ?3)';

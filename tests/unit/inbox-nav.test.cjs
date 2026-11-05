@@ -143,8 +143,8 @@ console.log('\n-- 2. the Social Inbox entries --');
 {
   const html = shellFor('dashboard');
   const group = inboxGroup(html);
-  check('Social Inbox has exactly four entries', group.split(/(?=<(?:a|span) class="nav__sub[ "])/).slice(1).length, 4);
-  for (const [label, href] of [['All Conversations', 'inbox-conversations'], ['Facebook', 'inbox-facebook'], ['WhatsApp', 'inbox-whatsapp'], ['Website Forms', 'inbox-website-forms']]) {
+  check('Social Inbox has exactly five entries', group.split(/(?=<(?:a|span) class="nav__sub[ "])/).slice(1).length, 5);
+  for (const [label, href] of [['All Conversations', 'inbox-conversations'], ['Facebook', 'inbox-facebook'], ['WhatsApp', 'inbox-whatsapp'], ['Website Forms', 'inbox-website-forms'], ['Bookings', 'inbox-bookings']]) {
     ok(`${label} links to pages/${href}.html`, new RegExp(`^<a class="nav__sub" href="pages/${href}\\.html"`).test(subFor(group, label)), subFor(group, label).slice(0, 120));
   }
   ok('Book Now and Comments are not in the Social Inbox', !/<span>Book Now<\/span>/.test(group) && !/<span>Comments<\/span>/.test(group), '');

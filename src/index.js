@@ -141,6 +141,17 @@ import { whatsapp, WHATSAPP_ROUTES } from './routes/whatsapp.js';
 // (validated, rate-limited, CORS for the website only) and the staff routes.
 import { publicFormSubmit, listWebsiteForms, getWebsiteForm, updateWebsiteForm } from './routes/website-forms.js';
 import { getWebsiteBookings } from './routes/website-bookings.js';
+import {
+  publicBookingSubmit, listBookings, getBooking, createBooking, updateBooking, setBookingStatus, addBookingNote,
+} from './routes/bookings.js';
+import {
+  listToolMaintenance, getToolMaintenance, createToolMaintenance, updateToolMaintenance,
+  setToolMaintenanceStatus, deleteToolMaintenance,
+} from './routes/tool-maintenance.js';
+import {
+  listToolAssignments, getToolAssignment, createToolAssignment, updateToolAssignment,
+  returnToolAssignment, cancelToolAssignment,
+} from './routes/tool-assignments.js';
 // Notifications Center (0017): the API, and the router-level wrapper that turns
 // a successful create/status change into a notification (lib/notifications.js).
 import { notifications, NOTIFICATION_ROUTES } from './routes/notifications.js';
@@ -280,10 +291,31 @@ const COLLECTIONS = {
   'website-forms': {
     list: listWebsiteForms, detail: getWebsiteForm, update: updateWebsiteForm,
   },
+  // Booking requests (0023). Public submissions arrive through POST
+  // /api/bookings/submit (dispatched before the gate); no remove: an unwanted
+  // booking is Rejected or Cancelled and kept.
+  bookings: {
+    list: listBookings, detail: getBooking, create: createBooking, update: updateBooking,
+    actions: { status: setBookingStatus, notes: addBookingNote },
+  },
   tools: {
     list: listTools, detail: getTool,
     create: createTool, update: updateTool, remove: deleteTool,
     actions: { retire: retireTool, reactivate: reactivateTool },
+  },
+  // Maintenance & Repairs (0024): jobs on the equipment above. Delete only for a
+  // job entered by mistake (Scheduled or Cancelled); finished work is kept.
+  'tool-maintenance': {
+    list: listToolMaintenance, detail: getToolMaintenance,
+    create: createToolMaintenance, update: updateToolMaintenance, remove: deleteToolMaintenance,
+    actions: { status: setToolMaintenanceStatus },
+  },
+  // Asset Assignment (0025): who was handed which equipment, and its return.
+  // No delete: assignment history is kept; a mistake is cancelled instead.
+  'tool-assignments': {
+    list: listToolAssignments, detail: getToolAssignment,
+    create: createToolAssignment, update: updateToolAssignment,
+    actions: { return: returnToolAssignment, cancel: cancelToolAssignment },
   },
   roles: {
     list: listRoles, detail: getRole,
@@ -324,6 +356,9 @@ const ROUTES = [
   // The website's form endpoint: public, validated and rate-limited itself
   // (routes/website-forms.js).
   'POST /api/forms/submit',
+  // The website's Book Now form: public, validated and rate-limited itself
+  // (routes/bookings.js).
+  'POST /api/bookings/submit',
   ...NOTIFICATION_ROUTES,
   ...SYNC_ROUTES,
   // The signed-in person's own password, and the shared passphrase switch
@@ -510,6 +545,10 @@ const worker = {
     if (url.pathname === '/api/forms/submit') {
       return withNotification(request, env, ctx, 'website-forms', 'submit', () => publicFormSubmit(request, env));
     }
+
+    // Public, and dispatched before the gate (and before /api/bookings/:id):
+    // the website's Book Now form. Protected like the form above.
+    if (url.pathname === '/api/bookings/submit') return publicBookingSubmit(request, env);
 
     // The Messenger inbox: conversations, messages, replies. Behind the gate.
     if (url.pathname === '/api/messenger' || url.pathname.startsWith('/api/messenger/')) {

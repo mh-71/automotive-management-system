@@ -1,8 +1,23 @@
 # Website Forms — connecting taqwa.autos to the CRM
 
-The public website's source is **not in this repository**, so the website
-change below has to be made in the website project. The CRM side (migration
-`0016`, `src/routes/website-forms.js`, the Website Forms page) is done.
+The public website's source is **not in this repository** (it is
+`mh-71/taqwa`, an Astro site), so the website change below has to be made in
+the website project. The CRM side (migrations `0016` and `0022`,
+`src/routes/website-forms.js`, the Website Forms page) is done.
+
+**Contact page (`/contact`).** `src/pages/contact.astro` in the website
+project sends to this endpoint with `formType: "contact"` and
+`sourcePage: "/contact"`. Field mapping: Full Name → `name`, Phone → `phone`,
+Email → `email`, Service → `service` (the option's label), Message →
+`message`. Status (`New`) and the submitted time (server time, `created_at`)
+are set by the CRM. The site's own `/api/contact` (its `/admin/messages` panel
+and email notification) is kept: a new enquiry is mirrored there, and it is
+the fallback when the CRM cannot be reached.
+
+**Staff assignment (`0022`).** An enquiry can be assigned to an active
+employee or mechanic (`PUT /api/website-forms/:id` with `assignedToId`, or
+`null` to un-assign; the list filters with `assigned=<id>|none`). The page
+refreshes itself every 30 seconds while it is visible.
 
 ## The endpoint
 
@@ -96,7 +111,9 @@ Add a hidden honeypot field to each form, keep the existing visible fields
 
 ## Deploying (needs approval)
 
-1. Back up production D1, apply `0016_website_forms.sql`, deploy the Worker.
+1. Back up production D1, apply `0016_website_forms.sql` (already applied in
+   production) and `0022_website_form_assignment.sql`, **then** deploy the
+   Worker (it reads the 0022 columns).
 2. Make the website change above and publish the website.
 3. From the website, send one test booking with fictional details; it should
    appear under **Social Inbox → Website Forms** as **New**. Mark it

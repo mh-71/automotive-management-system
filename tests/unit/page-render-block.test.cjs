@@ -17,7 +17,7 @@ const headers = fs.readFileSync(path.join(ROOT, '_headers'), 'utf8');
 const allowedHash = (headers.match(/'sha256-([^']+)'/) || [])[1];
 
 console.log('=== page-render-block: first paint waits for the shell ===\n');
-check('every module page is covered', pages.length, 34);   // 15 + the five Customer CRM pages + the nine Staff Management pages + the three Estimates pages + the Notifications Center and Workshop Tools demo pages
+check('every module page is covered', pages.length, 46);   // index.html + every page in pages/ (45), counted again whenever a page is added
 
 for (const p of pages) {
   const html = fs.readFileSync(path.join(ROOT, p), 'utf8');

@@ -11,6 +11,11 @@
         type, date and search re-query the Worker; opening one shows its
         details and history; Save sends the status, notes and
         expectedUpdatedAt; a stale save reloads.
+     6. Assignment and auto-refresh (0022): Assigned to offers only active
+        staff and mechanics from the roster, saves only what changed, shows
+        the assignee in the row and facts, and the Assigned filter is sent;
+        the list refreshes itself while visible (a new enquiry appears),
+        never while hidden, and never overwrites unsaved edits.
      5. Failures: Retry, never demo data; empty and no-match states; no
         backend says so and never asks for /api/website-forms.
 
@@ -49,12 +54,14 @@ const ROWS = [
 
 function api({ rows = ROWS, failList = null, failTimes = Infinity, stale = false } = {}) {
   const base = fakeApi({ rows: {} });
+  const STAFF_ROWS = [{ id: 'STF-0001', name: 'Nadia Akter', status: 'Active' }, { id: 'MEC-0001', name: 'Jamal Uddin', status: 'Active' }, { id: 'STF-0002', name: 'Gone', status: 'Inactive' }];
   const calls = base.calls;
   let failures = 0;
   const db = JSON.parse(JSON.stringify(rows));
   const res = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body });
   const fn = async (url, init = {}) => {
     const path = String(url).replace(/^https?:\/\/[^/]+\/api/, '');
+    if (path.startsWith('/staff')) { calls.push({ method: 'GET', path }); return res(200, { data: STAFF_ROWS, count: 3, total: 3, limit: 1000, offset: 0 }); }
     if (!path.startsWith('/website-forms')) return base(url, init);
     const method = init.method || 'GET';
     const body = init.body ? JSON.parse(init.body) : undefined;
@@ -71,21 +78,26 @@ function api({ rows = ROWS, failList = null, failTimes = Infinity, stale = false
     if (method === 'GET') return res(200, { data: { ...r, history } });
     if (method === 'PUT') {
       if (stale) return res(409, { error: { code: 'conflict', message: 'This enquiry was changed by someone else after you opened it. Reload it and try again.', reason: 'concurrent_modification' } });
-      Object.assign(r, body.status ? { status: body.status } : {}, 'notes' in body ? { notes: body.notes } : {}, { updatedAt: new Date().toISOString(), updatedBy: 'API token' });
+      const who = 'assignedToId' in body ? { assignedToId: body.assignedToId || '', assignedToName: (STAFF_ROWS.find((x) => x.id === body.assignedToId) || {}).name || '', assignedBy: 'API token', assignedAt: new Date().toISOString() } : {};
+      Object.assign(r, body.status ? { status: body.status } : {}, 'notes' in body ? { notes: body.notes } : {}, who, { updatedAt: new Date().toISOString(), updatedBy: 'API token' });
       return res(200, { data: { ...r, history: [...history, { id: 2, action: 'status', fromStatus: 'New', toStatus: r.status, actor: 'API token', at: r.updatedAt }] } });
     }
     return res(405, { error: { code: 'method_not_allowed', message: 'no' } });
   };
   fn.calls = calls;
+  fn.db = db;
   return fn;
 }
 
 function page({ origin = 'http://localhost:8787', fetch, plantDemo = false } = {}) {
   const chips = [];
+  const timers = [];
   const h = boot({
     origin, fetch, modules: ['js/inbox-website-forms.js'],
     beforeModules(doc, ctx) {
       doc.body.dataset.page = 'inbox-website-forms';
+      ctx.setInterval = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+      ctx.clearInterval = () => {};
       const els = new Map();
       const make = (id) => {
         const e = makeElement(id); e.hidden = false; e.disabled = false;
@@ -101,7 +113,7 @@ function page({ origin = 'http://localhost:8787', fetch, plantDemo = false } = {
       if (plantDemo) ctx.localStorage.setItem('taqwa_websiteForms', JSON.stringify([sub('WEB-9999', { name: 'DEMO ROW' })]));
     },
   });
-  return { h, el: id => h.ctx.document.getElementById(id), chips };
+  return { h, el: id => h.ctx.document.getElementById(id), chips, timers };
 }
 const formCalls = calls => calls.filter(c => c.path.startsWith('/website-forms'));
 const lastQuery = calls => new URLSearchParams(formCalls(calls).filter(c => c.method === 'GET' && !/WEB-/.test(c.path)).slice(-1)[0].path.split('?')[1] || '');
@@ -118,7 +130,7 @@ console.log('-- 1. the link --');
   const html = shellFor('inbox-website-forms', '../');
   ok('on its page it is active and the current page', /^<a class="nav__sub is-active"/.test(subFor(inboxGroup(html), 'Website Forms')), '');
   ok('   ...and the header says Website Forms', /<h1>Website Forms<\/h1>/.test(html), '');
-  check('Social Inbox still has exactly four entries', inboxGroup(shellFor('dashboard')).split(/(?=<(?:a|span) class="nav__sub[ "])/).slice(1).length, 4);
+  check('Social Inbox still has exactly five entries', inboxGroup(shellFor('dashboard')).split(/(?=<(?:a|span) class="nav__sub[ "])/).slice(1).length, 5);
 }
 
 console.log('\n-- 2. real, not a demo --');
@@ -228,6 +240,51 @@ console.log('\n-- 5. failures and empty states --');
   await tick(40);
   ok('no backend: says the database is not connected', /not connected/.test(el('wfListState').innerHTML), el('wfListState').innerHTML);
   check('   ...and never asks for /api/website-forms', formCalls(fetch.calls).length, 0);
+}
+
+console.log('\n-- 6. assignment and auto-refresh --');
+{
+  const fetch = api();
+  const { h, el, timers } = page({ fetch });
+  h.fireReady();
+  await tick(100);
+  const filterOpts = el('wfAssigned').innerHTML;
+  ok('the Assigned filter offers Anyone, Not assigned and active staff only', /value="none">Not assigned/.test(filterOpts) && /value="STF-0001">Nadia Akter/.test(filterOpts) && !/STF-0002/.test(filterOpts), filterOpts);
+  el('wfAssigned').value = 'none'; el('wfAssigned').dispatch('change');
+  await tick(60);
+  check('   ...and is sent to the Worker', lastQuery(fetch.calls).get('assigned'), 'none');
+  el('wfAssigned').value = ''; el('wfAssigned').dispatch('change');
+  await tick(60);
+
+  el('wfList').dispatch('click', { target: { closest: () => ({ dataset: { id: 'WEB-0001' } }) } });
+  await tick(60);
+  const opts = el('wfdAssigned').innerHTML;
+  ok('Assigned to offers only active staff and mechanics from the roster', /value="">Not assigned/.test(opts) && /value="STF-0001">Nadia Akter/.test(opts) && /value="MEC-0001">Jamal Uddin/.test(opts) && !/STF-0002/.test(opts), opts);
+  ok('the facts say the source is the website', /<dt>Source<\/dt><dd>Website<\/dd>/.test(el('wfdFacts').innerHTML), el('wfdFacts').innerHTML);
+  el('wfdAssigned').value = 'MEC-0001';
+  el('wfManage').dispatch('submit', { preventDefault() {} });
+  await tick(80);
+  const put = formCalls(fetch.calls).filter(c => c.method === 'PUT').slice(-1)[0];
+  check('Save sends only the assignment (status and notes unchanged)', put && put.body, { expectedUpdatedAt: ROWS[1].updatedAt, assignedToId: 'MEC-0001' });
+  ok('   ...the facts show who it is assigned to and by whom', /Assigned to<\/dt><dd>Jamal Uddin <small>\(by API token/.test(el('wfdFacts').innerHTML), el('wfdFacts').innerHTML);
+  ok('   ...and the list row shows the assignee', /WEB-0001[^<]*· Jamal Uddin/.test(el('wfList').innerHTML), el('wfList').innerHTML);
+  el('wfdAssigned').value = '';
+  el('wfManage').dispatch('submit', { preventDefault() {} });
+  await tick(80);
+  check('choosing Not assigned sends null', formCalls(fetch.calls).filter(c => c.method === 'PUT').slice(-1)[0].body.assignedToId, null);
+
+  const poll = timers.find(t => t.ms === 30000);
+  ok('the page refreshes itself every 30 seconds', Boolean(poll), JSON.stringify(timers.map(t => t.ms)));
+  fetch.db.unshift(sub('WEB-0003', { name: 'Brand New Contact', formType: 'contact', service: 'Car AC Service', message: 'Hello', sourcePage: '/contact' }));
+  const gets = () => formCalls(fetch.calls).filter(c => c.method === 'GET').length;
+  h.ctx.document.hidden = true;
+  let n = gets(); poll.fn(); await tick(60);
+  check('   ...not while the tab is hidden', gets(), n);
+  h.ctx.document.hidden = false;
+  el('wfdNotes').value = 'typing, not saved yet';
+  poll.fn(); await tick(80);
+  ok('   ...a new website enquiry appears without pressing Refresh', /Brand New Contact/.test(el('wfList').innerHTML), el('wfList').innerHTML);
+  check('   ...and unsaved notes in the open enquiry are not overwritten', el('wfdNotes').value, 'typing, not saved yet');
 }
 
 process.exit(summary('inbox-website-forms') === 0 ? 0 : 1);

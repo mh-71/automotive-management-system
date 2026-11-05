@@ -1,6 +1,8 @@
-/* workshop-assets-demo — the four Workshop Assets demo pages.
-   (Equipment Inventory left this list in 0021: it is a real page now,
-   covered by tests/unit/equipment-inventory-ui.test.cjs.)
+/* workshop-assets-demo — the two Workshop Assets demo pages.
+   (Equipment Inventory left this list in 0021, Maintenance & Repairs in 0024
+   and Asset Assignment in 0025: they are real pages now, covered by
+   equipment-inventory-ui.test.cjs, maintenance-repairs-ui.test.cjs and
+   asset-assignment-ui.test.cjs.)
 
    What must hold:
      1. Each page exists, loads the shared engine and its own script and
@@ -22,13 +24,11 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
 const PAGES = {
-  'maintenance-repairs': 'Maintenance &amp; Repairs',
-  'asset-assignment': 'Asset Assignment',
   'asset-history': 'Asset History',
   'asset-reports': 'Asset Reports',
 };
 
-console.log('=== workshop-assets-demo: the four Workshop Assets demo pages ===\n');
+console.log('=== workshop-assets-demo: the two Workshop Assets demo pages ===\n');
 
 console.log('-- 1. the pages --');
 const toolsHead = read('pages/workshop-tools.html').split('\n<body')[0];
@@ -89,21 +89,6 @@ console.log('\n-- 3. shared helpers --');
 
 console.log('\n-- 4. sample data --');
 const demoPerson = p => !p || / \(Demo\)$/.test(p);
-{
-  const M = load('js/maintenance-repairs-ui.js', 'MaintenanceRepairsUI');
-  ok('Maintenance & Repairs: fictional records and technicians', M.SAMPLE.every(r => /^DEMO-MNT-\d{3}$/.test(r.id) && demoPerson(r.tech)), '');
-  ok('   ...overdue = open and past its next service', M.overdue(M.SAMPLE).every(r => r.status !== 'Completed' && r.next < '2026-10-30') && M.overdue(M.SAMPLE).length > 0, '');
-  ok('   ...upcoming = open and due within 30 days', M.upcoming(M.SAMPLE).every(r => r.status !== 'Completed' && r.next >= '2026-10-30' && r.next <= '2026-11-29') && M.upcoming(M.SAMPLE).length > 0, '');
-  ok('   ...recent repairs are completed repairs', M.recentRepairs(M.SAMPLE).every(r => r.type === 'Repair' && r.status === 'Completed'), '');
-}
-{
-  const S = load('js/asset-assignment-ui.js', 'AssetAssignmentUI');
-  ok('Asset Assignment: fictional mechanics with DEMO ids', S.MECHANICS.every(m => demoPerson(m) && /^DEMO-MEC-\d{2}$/.test(S.MECHANIC_ID[m])), '');
-  ok('   ...every assignment names one of them', S.SAMPLE.every(r => !r.mechanic || S.MECHANICS.includes(r.mechanic)), '');
-  const c = S.summary(S.SAMPLE);
-  check('   ...assigned + available = total', c.assigned + c.available, c.total);
-  ok('   ...an overdue one is past its return date', S.SAMPLE.filter(r => r.status === 'Overdue').every(r => r.due < '2026-10-30'), '');
-}
 {
   const H = load('js/asset-history-ui.js', 'AssetHistoryUI');
   check('Asset History: the six activity types', Object.keys(H.TYPES), ['Asset Purchased', 'Asset Assigned', 'Asset Returned', 'Maintenance Completed', 'Repair Recorded', 'Status Changed']);
