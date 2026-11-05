@@ -130,7 +130,7 @@ console.log('-- 1. the link --');
   const html = shellFor('inbox-website-forms', '../');
   ok('on its page it is active and the current page', /^<a class="nav__sub is-active"/.test(subFor(inboxGroup(html), 'Website Forms')), '');
   ok('   ...and the header says Website Forms', /<h1>Website Forms<\/h1>/.test(html), '');
-  check('Social Inbox still has exactly four entries', inboxGroup(shellFor('dashboard')).split(/(?=<(?:a|span) class="nav__sub[ "])/).slice(1).length, 4);
+  check('Social Inbox still has exactly five entries', inboxGroup(shellFor('dashboard')).split(/(?=<(?:a|span) class="nav__sub[ "])/).slice(1).length, 5);
 }
 
 console.log('\n-- 2. real, not a demo --');

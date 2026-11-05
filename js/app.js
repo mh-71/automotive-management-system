@@ -25,12 +25,12 @@ const App = (() => {
     { key: 'settings',     label: 'Settings',     href: 'pages/settings.html',   icon: 'M19.1 12.9c0-.3.1-.6.1-.9s0-.6-.1-.9l2-1.6c.2-.1.2-.4.1-.6l-1.9-3.3c-.1-.2-.4-.3-.6-.2l-2.4 1c-.5-.4-1-.7-1.6-.9l-.4-2.5c0-.2-.2-.4-.5-.4h-3.8c-.2 0-.4.2-.5.4l-.4 2.5c-.6.2-1.1.6-1.6.9l-2.4-1c-.2-.1-.5 0-.6.2L2.6 9c-.1.2-.1.4.1.6l2 1.6c0 .3-.1.6-.1.9s0 .6.1.9l-2 1.6c-.2.1-.2.4-.1.6l1.9 3.3c.1.2.4.3.6.2l2.4-1c.5.4 1 .7 1.6.9l.4 2.5c0 .2.2.4.5.4h3.8c.2 0 .4-.2.5-.4l.4-2.5c.6-.2 1.1-.6 1.6-.9l2.4 1c.2.1.5 0 .6-.2l1.9-3.3c.1-.2.1-.4-.1-.6l-2-1.6zM12 15.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5z' }
   ];
 
-  /* Social Inbox, shown after Inventory: exactly four entries. Facebook is
+  /* Social Inbox, shown after Inventory: exactly five entries. Facebook is
      connected to the real Page (Messenger, migration 0014) and All
      Conversations lists its conversations; WhatsApp is connected to the
      WhatsApp Business Cloud API (migration 0015); Website Forms receives the
-     website's enquiries (migration 0016) (sample data in memory, nothing connected, sent or
-     booked). Website
+     website's enquiries (migration 0016); Bookings is a DEMO page (fictional
+     sample bookings in memory, nothing connected, saved or sent). Website
      bookings are listed in Appointments, and Facebook page comments are part
      of the Facebook inbox, so neither has an entry of its own here. Every
      entry is a link; the not-configured rendering below stays for any entry
@@ -47,6 +47,8 @@ const App = (() => {
       title: 'Real WhatsApp Business conversations (Cloud API).', icon: 'M12 2C6.48 2 2 6.03 2 11c0 2.84 1.46 5.36 3.74 7L5 22l4.27-2.18c.87.12 1.79.18 2.73.18 5.52 0 10-4.03 10-9S17.52 2 12 2z' },
     { key: 'inbox-website-forms', label: 'Website Forms', href: 'pages/inbox-website-forms.html', hint: 'Website',
       title: 'Booking, quote and contact enquiries sent from the taqwa.autos website.', icon: 'M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z' },
+    { key: 'inbox-bookings', label: 'Bookings', href: 'pages/inbox-bookings.html', hint: 'Demo',
+      title: 'Demo page: a preview of a bookings inbox with fictional sample bookings. Nothing is saved.', icon: 'M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5z' },
   ];
   // Whether Social Inbox was left open, so it does not snap shut on every page
   // change (each one is a full document load). Display state only.
@@ -149,6 +151,7 @@ const App = (() => {
     'inbox-whatsapp': 'WhatsApp',
     'inbox-facebook': 'Facebook Messenger',
     'inbox-website-forms': 'Website Forms',
+    'inbox-bookings': 'Bookings',
     notifications: 'Notifications Center',
     'offline-sync': 'Offline & Sync',
     'sync-conflicts': 'Conflict Center',
@@ -985,6 +988,7 @@ const App = (() => {
     'staff-accounts': 'users.view', 'staff-roles': 'roles.view', 'staff-attendance': 'attendance.view', 'staff-leave': 'leave.view',
     'staff-activity-log': 'activity_log.view',
     'inbox-conversations': 'inbox.view', 'inbox-facebook': 'inbox.view', 'inbox-whatsapp': 'inbox.view', 'inbox-website-forms': 'inbox.view',
+    'inbox-bookings': 'inbox.view',
     'workshop-tools': 'tools.view', 'equipment-inventory': 'tools.view', 'maintenance-repairs': 'tools.view',
     'asset-assignment': 'tools.view', 'asset-history': 'tools.view', 'asset-reports': 'tools.view',
     notifications: 'notifications.view',
@@ -1006,6 +1010,7 @@ const App = (() => {
     'staff-accounts': 'Staff', 'staff-roles': 'Staff', 'staff-leave': 'Staff', 'staff-activity-log': 'Staff',
     'crm-reminders': 'CRM', 'crm-follow-up': 'CRM', 'crm-history': 'CRM', 'crm-tasks': 'CRM', 'crm-reports': 'CRM',
     'inbox-conversations': 'Inbox', 'inbox-facebook': 'Inbox', 'inbox-whatsapp': 'Inbox', 'inbox-website-forms': 'Inbox',
+    'inbox-bookings': 'Inbox',
     settings: 'Settings',
   };
   const ONLINE_ONLY_MODULES = ['Estimates', 'Attendance', 'Workshop Assets', 'Notifications', 'Staff', 'CRM', 'Inbox'];
