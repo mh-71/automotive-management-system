@@ -394,6 +394,9 @@ console.log('\n-- 11. Routing --');
     'GET /api/activity-log', 'GET /api/activity-log/:id',
     // 0016: website enquiries are read and updated by staff; they arrive through the public form endpoint.
     'GET /api/website-forms', 'GET /api/website-forms/:id', 'PUT /api/website-forms/:id',
+    // 0023: booking requests; no DELETE (Rejected or Cancelled instead); status and notes are actions.
+    'GET /api/bookings', 'POST /api/bookings', 'GET /api/bookings/:id', 'PUT /api/bookings/:id',
+    'POST /api/bookings/:id/status', 'POST /api/bookings/:id/notes',
     // 0013: tools are registered and edited, and retired by an administrator; never deleted.
     'GET /api/tools', 'POST /api/tools', 'GET /api/tools/:id', 'PUT /api/tools/:id', 'DELETE /api/tools/:id', 'POST /api/tools/:id/retire', 'POST /api/tools/:id/reactivate',
     'GET /api/roles', 'POST /api/roles', 'GET /api/roles/:id', 'PUT /api/roles/:id', 'DELETE /api/roles/:id',
@@ -404,6 +407,7 @@ console.log('\n-- 11. Routing --');
     'GET /api/whatsapp/conversations', 'GET /api/whatsapp/conversations/:id', 'GET /api/whatsapp/conversations/:id/messages', 'POST /api/whatsapp/conversations/:id/reply', 'POST /api/whatsapp/conversations/:id/read', 'POST /api/whatsapp/conversations/:id/unread', 'PUT /api/whatsapp/conversations/:id/status',
     'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp',
     'POST /api/forms/submit',
+    'POST /api/bookings/submit',
     'GET /api/notifications', 'GET /api/notifications/unread-count', 'POST /api/notifications/read-all',
     'POST /api/notifications/:id/read', 'POST /api/notifications/:id/unread',
     // 0020: offline sync -- devices, push / pull, conflicts, invoice drafts.
@@ -420,7 +424,7 @@ console.log('\n-- 11. Routing --');
   const res = await call('/api/nope', { DB: stubDB({ rows: [] }) });
   const body = await res.json();
   check('unknown collection -> 404', res.status, 404);
-  check('404 advertises every route', body.error.available.length, 167);
+  check('404 advertises every route', body.error.available.length, 174);
 }
 
 console.log(`\nGET /api/services unit: ${pass} passed, ${fail} failed`);

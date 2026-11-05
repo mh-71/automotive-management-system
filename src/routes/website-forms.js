@@ -104,7 +104,7 @@ function allowedOrigins(env) {
 }
 
 /** The CORS headers for this request's Origin, or null when it is not one of ours. */
-function corsHeaders(request, env) {
+export function corsHeaders(request, env) {
   const origin = request.headers.get('origin');
   if (!origin) return {};                     // not a browser cross-origin call
   if (!allowedOrigins(env).includes(origin)) return null;
@@ -117,7 +117,7 @@ function corsHeaders(request, env) {
   };
 }
 
-const withHeaders = (response, extra) => {
+export const withHeaders = (response, extra) => {
   const headers = new Headers(response.headers);
   for (const [k, v] of Object.entries(extra || {})) headers.set(k, v);
   return new Response(response.body, { status: response.status, headers });
@@ -156,7 +156,7 @@ function readSubmission(body) {
   return { values: v, errors: e };
 }
 
-async function ipHash(request, env) {
+export async function ipHash(request, env) {
   const ip = request.headers.get('cf-connecting-ip') || '';
   if (!ip) return null;
   const salt = typeof env?.AUTH_SECRET === 'string' && env.AUTH_SECRET ? env.AUTH_SECRET : 'taqwa-forms';

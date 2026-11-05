@@ -185,6 +185,8 @@ console.log('\n-- B. every route has a permission --');
   const routes = (await r.json()).error.available;
   const PUBLIC = ['GET /api/health', 'GET /api/session', 'POST /api/session', 'DELETE /api/session', 'GET /api/webhooks/messenger', 'POST /api/webhooks/messenger',
     'GET /api/webhooks/whatsapp', 'POST /api/webhooks/whatsapp', 'POST /api/forms/submit',
+    // 0023: the website's Book Now form, public and protected like the form above.
+    'POST /api/bookings/submit',
     // 0019: dispatched before the gate; each checks the person's own session itself.
     'POST /api/session/password', 'PUT /api/session/passphrase'];
   const needOf = (route) => {

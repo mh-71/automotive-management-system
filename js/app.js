@@ -29,8 +29,8 @@ const App = (() => {
      connected to the real Page (Messenger, migration 0014) and All
      Conversations lists its conversations; WhatsApp is connected to the
      WhatsApp Business Cloud API (migration 0015); Website Forms receives the
-     website's enquiries (migration 0016); Bookings is a DEMO page (fictional
-     sample bookings in memory, nothing connected, saved or sent). Website
+     website's enquiries (migration 0016); Bookings holds booking requests
+     (migration 0023): the website's Book Now form and staff-entered ones. Website
      bookings are listed in Appointments, and Facebook page comments are part
      of the Facebook inbox, so neither has an entry of its own here. Every
      entry is a link; the not-configured rendering below stays for any entry
@@ -47,8 +47,8 @@ const App = (() => {
       title: 'Real WhatsApp Business conversations (Cloud API).', icon: 'M12 2C6.48 2 2 6.03 2 11c0 2.84 1.46 5.36 3.74 7L5 22l4.27-2.18c.87.12 1.79.18 2.73.18 5.52 0 10-4.03 10-9S17.52 2 12 2z' },
     { key: 'inbox-website-forms', label: 'Website Forms', href: 'pages/inbox-website-forms.html', hint: 'Website',
       title: 'Booking, quote and contact enquiries sent from the taqwa.autos website.', icon: 'M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z' },
-    { key: 'inbox-bookings', label: 'Bookings', href: 'pages/inbox-bookings.html', hint: 'Demo',
-      title: 'Demo page: a preview of a bookings inbox with fictional sample bookings. Nothing is saved.', icon: 'M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5z' },
+    { key: 'inbox-bookings', label: 'Bookings', href: 'pages/inbox-bookings.html', hint: 'Requests',
+      title: 'Booking requests from the website and staff: confirm, reschedule, assign and add notes.', icon: 'M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5z' },
   ];
   // Whether Social Inbox was left open, so it does not snap shut on every page
   // change (each one is a full document load). Display state only.

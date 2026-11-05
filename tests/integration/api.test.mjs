@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 167 routes', routes.length === 167, routes);
+  t('advertises 174 routes', routes.length === 174, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('69 GET, 61 POST, 23 PUT, 14 DELETE (0020 added offline sync; 0021 equipment delete and reactivate)',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 69, POST: 61, PUT: 23, DELETE: 14 }), byMethod);
+    t('71 GET, 65 POST, 24 PUT, 14 DELETE (0020 added offline sync; 0021 equipment delete and reactivate; 0023 bookings)',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 71, POST: 65, PUT: 24, DELETE: 14 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));
@@ -94,6 +94,7 @@ sec('1. Health');
         'POST /api/estimates/:id/cancel', 'POST /api/estimates/:id/convert',
         'POST /api/accounts/:id/password',
         'POST /api/leave-requests/:id/approve', 'POST /api/leave-requests/:id/reject',
+        'POST /api/bookings/:id/status', 'POST /api/bookings/:id/notes',
         'POST /api/tools/:id/retire',
         'POST /api/tools/:id/reactivate',
         'GET /api/messenger/conversations/:id/messages', 'POST /api/messenger/conversations/:id/reply',
@@ -4649,7 +4650,7 @@ sec('21. Authentication: every mutation is gated, against the real Worker');
     // The Messenger webhook (0014) is public by necessity -- Meta has no
     // session -- and is protected by Meta's App Secret signature instead
     // (tests/unit/api-messenger.test.mjs proves an unsigned POST is refused).
-    const SESSION_ROUTES = new Set(['POST /api/session', 'DELETE /api/session', 'POST /api/webhooks/messenger', 'POST /api/webhooks/whatsapp', 'POST /api/forms/submit']);
+    const SESSION_ROUTES = new Set(['POST /api/session', 'DELETE /api/session', 'POST /api/webhooks/messenger', 'POST /api/webhooks/whatsapp', 'POST /api/forms/submit', 'POST /api/bookings/submit']);
     const mutations = advertised.filter(
       (r) => /^(POST|PUT|PATCH|DELETE) /.test(r) && !SESSION_ROUTES.has(r));
     t('the registry advertises the mutations to check', mutations.length >= 30, mutations.length);
