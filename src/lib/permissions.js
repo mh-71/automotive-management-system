@@ -185,6 +185,8 @@ export const COLLECTION_PERMISSIONS = {
   tools: { view: 'tools.view', create: 'tools.create', update: 'tools.edit', remove: 'tools.delete', actions: { retire: 'tools.manage', reactivate: 'tools.manage' } },
   // Maintenance & Repairs (0024): part of Workshop Assets, so its permissions -- no new ones.
   'tool-maintenance': { view: 'tools.view', create: 'tools.edit', update: 'tools.edit', remove: 'tools.delete', actions: { status: 'tools.edit' } },
+  // Asset Assignment (0025): also Workshop Assets -- tools.edit is "Edit, assign and return".
+  'tool-assignments': { view: 'tools.view', create: 'tools.edit', update: 'tools.edit', actions: { return: 'tools.edit', cancel: 'tools.edit' } },
   roles: { view: 'roles.view', create: 'roles.create', update: 'roles.edit', remove: 'roles.delete' },
 };
 

@@ -401,6 +401,8 @@ console.log('\n-- 11. Routing --');
     'GET /api/tools', 'POST /api/tools', 'GET /api/tools/:id', 'PUT /api/tools/:id', 'DELETE /api/tools/:id', 'POST /api/tools/:id/retire', 'POST /api/tools/:id/reactivate',
     // 0024: maintenance jobs on that equipment; delete only for one entered by mistake.
     'GET /api/tool-maintenance', 'POST /api/tool-maintenance', 'GET /api/tool-maintenance/:id', 'PUT /api/tool-maintenance/:id', 'DELETE /api/tool-maintenance/:id', 'POST /api/tool-maintenance/:id/status',
+    // 0025: equipment assignments; no delete (history is kept), a mistake is cancelled.
+    'GET /api/tool-assignments', 'POST /api/tool-assignments', 'GET /api/tool-assignments/:id', 'PUT /api/tool-assignments/:id', 'POST /api/tool-assignments/:id/return', 'POST /api/tool-assignments/:id/cancel',
     'GET /api/roles', 'POST /api/roles', 'GET /api/roles/:id', 'PUT /api/roles/:id', 'DELETE /api/roles/:id',
     // 0014: the Messenger inbox, then Meta's public webhook.
     'GET /api/messenger/conversations', 'GET /api/messenger/conversations/:id', 'GET /api/messenger/conversations/:id/messages', 'POST /api/messenger/conversations/:id/reply', 'POST /api/messenger/conversations/:id/read', 'PUT /api/messenger/conversations/:id/status',
@@ -426,7 +428,7 @@ console.log('\n-- 11. Routing --');
   const res = await call('/api/nope', { DB: stubDB({ rows: [] }) });
   const body = await res.json();
   check('unknown collection -> 404', res.status, 404);
-  check('404 advertises every route', body.error.available.length, 180);
+  check('404 advertises every route', body.error.available.length, 186);
 }
 
 console.log(`\nGET /api/services unit: ${pass} passed, ${fail} failed`);

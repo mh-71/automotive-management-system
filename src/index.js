@@ -148,6 +148,10 @@ import {
   listToolMaintenance, getToolMaintenance, createToolMaintenance, updateToolMaintenance,
   setToolMaintenanceStatus, deleteToolMaintenance,
 } from './routes/tool-maintenance.js';
+import {
+  listToolAssignments, getToolAssignment, createToolAssignment, updateToolAssignment,
+  returnToolAssignment, cancelToolAssignment,
+} from './routes/tool-assignments.js';
 // Notifications Center (0017): the API, and the router-level wrapper that turns
 // a successful create/status change into a notification (lib/notifications.js).
 import { notifications, NOTIFICATION_ROUTES } from './routes/notifications.js';
@@ -305,6 +309,13 @@ const COLLECTIONS = {
     list: listToolMaintenance, detail: getToolMaintenance,
     create: createToolMaintenance, update: updateToolMaintenance, remove: deleteToolMaintenance,
     actions: { status: setToolMaintenanceStatus },
+  },
+  // Asset Assignment (0025): who was handed which equipment, and its return.
+  // No delete: assignment history is kept; a mistake is cancelled instead.
+  'tool-assignments': {
+    list: listToolAssignments, detail: getToolAssignment,
+    create: createToolAssignment, update: updateToolAssignment,
+    actions: { return: returnToolAssignment, cancel: cancelToolAssignment },
   },
   roles: {
     list: listRoles, detail: getRole,

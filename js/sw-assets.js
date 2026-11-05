@@ -50,7 +50,7 @@ self.TAQWA_ASSETS = [
   "/js/api.js",
   "/js/app.js",
   "/js/appointments.js",
-  "/js/asset-assignment-ui.js",
+  "/js/asset-assignment.js",
   "/js/asset-history-ui.js",
   "/js/asset-reports-ui.js",
   "/js/crm-follow-up.js",

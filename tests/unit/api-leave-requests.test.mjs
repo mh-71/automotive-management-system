@@ -340,9 +340,9 @@ console.log('\n-- F. compatibility --');
   check('submitting and approving leave changes no other table -- no attendance record is made', counts(), before);
   check('the attendance of that day still reads as nothing recorded', (await h.api('GET', `/api/attendance?date=${D(0)}`)).body?.data?.length, 0);
   const routes = (await h.api('GET', '/api/health')).body?.data?.routes ?? [];
-  check('the registry holds the five leave routes (180 with the two activity-log routes of 0012, the five tools routes of 0013, the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 the five Notifications routes of 0017 the five Roles routes of 0018 and the two session routes of 0019 and the two equipment routes of 0021 and the seven bookings routes of 0023 and the six maintenance routes of 0024)',
+  check('the registry holds the five leave routes (186 with the two activity-log routes of 0012, the five tools routes of 0013, the eight Messenger routes of 0014 the nine WhatsApp routes of 0015 the five Notifications routes of 0017 the five Roles routes of 0018 and the two session routes of 0019 and the two equipment routes of 0021 and the seven bookings routes of 0023 and the six maintenance routes of 0024 and the six assignment routes of 0025)',
     [routes.length, routes.filter((r) => r.includes('/api/leave-requests'))],
-    [180, ['GET /api/leave-requests', 'POST /api/leave-requests', 'GET /api/leave-requests/:id',
+    [186, ['GET /api/leave-requests', 'POST /api/leave-requests', 'GET /api/leave-requests/:id',
       'POST /api/leave-requests/:id/approve', 'POST /api/leave-requests/:id/reject']]);
   await h.api('POST', PATH, NEW({ staffId: 'MEC-0004', startDate: D(50), endDate: D(50) }));
   const del = await h.api('DELETE', '/api/mechanics/MEC-0004');

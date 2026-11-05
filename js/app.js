@@ -84,10 +84,12 @@ const App = (() => {
      an expandable group drawn like Customer CRM and Staff Management.
      Tools & Equipment (pages/workshop-tools.html) and Equipment Inventory
      (pages/equipment-inventory.html, 0021) are REAL pages on the same register
-     (GET /api/tools), and Maintenance & Repairs (pages/maintenance-repairs.html,
-     0024) is a REAL page on its jobs (GET /api/tool-maintenance). The other three
-     are still DEMO pages (fictional sample data held in memory, nothing saved or
-     sent) sharing js/workshop-assets-demo.js.
+     (GET /api/tools), Maintenance & Repairs (pages/maintenance-repairs.html,
+     0024) is a REAL page on its jobs (GET /api/tool-maintenance), and Asset
+     Assignment (pages/asset-assignment.html, 0025) is a REAL page on who has
+     which equipment (GET /api/tool-assignments). The other two are still DEMO
+     pages (fictional sample data held in memory, nothing saved or sent) sharing
+     js/workshop-assets-demo.js.
      An entry without an href would be shown as "Coming soon", never as a link. */
   const ASSETS_ICON = '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>';
   const ASSETS = [

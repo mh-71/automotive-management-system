@@ -6,7 +6,7 @@
 
      1. The page is no longer a demo: no demo engine, no demo stylesheet, no
         sample data, its own real script; every element id the script reads
-        exists in the markup; the other three demo pages still use the engine.
+        exists in the markup; the other demo pages still use the engine.
      2. Validation of the schedule / edit form.
      3. Request bodies: create sends what was filled in; an edit only what
         changed plus expectedUpdatedAt (and nothing when nothing changed).
@@ -36,7 +36,8 @@ console.log('-- 1. not a demo --');
   const ids = [...new Set([...js.matchAll(/\$\('([A-Za-z]+)'\)/g)].map((m) => m[1]))];
   check('every element id the script reads is in the markup', ids.filter((id) => !html.includes(`id="${id}"`)), []);
   ok('the page keeps the shared head (theme, render hold) and data-page', html.includes('<body data-page="maintenance-repairs" data-root="../">') && html.includes('blocking="render"') && html.includes('taqwa_theme'), '');
-  for (const p of ['asset-assignment', 'asset-history', 'asset-reports']) {
+  // Asset Assignment became a real page in 0025 (asset-assignment-ui.test.cjs).
+  for (const p of ['asset-history', 'asset-reports']) {
     const h = read(`pages/${p}.html`);
     ok(`${p} is untouched: still the demo engine and its own script`, h.includes('workshop-assets-demo.js') && h.includes(`${p}-ui.js`) && h.includes('workshop-assets-demo.css'), '');
   }
