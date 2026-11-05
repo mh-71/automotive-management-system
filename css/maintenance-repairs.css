@@ -1,14 +1,224 @@
 /* ============================================================
-   maintenance-repairs.css — Workshop Assets › Maintenance & Repairs
-   (demo page, UI only)
+   maintenance-repairs.css — Workshop Assets › Maintenance & Repairs   (0024)
    ------------------------------------------------------------
-   Loaded only by pages/maintenance-repairs.html, and every rule is scoped to its
-   data-page. The shared look lives in workshop-assets-demo.css;
-   this file holds only what is particular to this page.
+   Loaded only by pages/maintenance-repairs.html; every rule is scoped
+   to [data-page="maintenance-repairs"], so nothing here reaches another
+   page (the three Workshop Assets demo pages keep workshop-assets-demo.css,
+   which this page no longer loads). Built from the shared components
+   (card, inputs, buttons, table, modal, form grid, detail grid, empty
+   state) and the shared colour tokens, so light and dark themes both
+   follow. Laid out like Equipment Inventory, its sibling page.
    ============================================================ */
 
-[data-page="maintenance-repairs"] .ad-section-title { margin: 4px 0 12px; font-size: 1.05rem; font-weight: 700; color: var(--text); }
-/* Five summary cards: one row on wide screens. */
-@media (min-width: 1300px) {
-  [data-page="maintenance-repairs"] .ad-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+[data-page="maintenance-repairs"] {
+  --mr-violet: #7c5cd6;
+  --mr-violet-soft: color-mix(in srgb, var(--mr-violet) 14%, var(--surface));
+  --mr-teal: #0f9488;
+}
+[data-page="maintenance-repairs"] [hidden] { display: none !important; }
+
+/* ---------- header ---------- */
+[data-page="maintenance-repairs"] .mr-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
+[data-page="maintenance-repairs"] .mr-head__icon {
+  flex: none; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 12px;
+  background: color-mix(in srgb, var(--amber) 14%, var(--surface)); color: var(--amber-text);
+}
+[data-page="maintenance-repairs"] .mr-head__text { min-width: 0; }
+[data-page="maintenance-repairs"] .mr-head__title { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text); line-height: 1.2; }
+[data-page="maintenance-repairs"] .mr-head .page-subtitle { margin: 6px 0 0; max-width: 640px; font-size: .9rem; color: var(--text-2); }
+[data-page="maintenance-repairs"] .mr-add {
+  margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; font-size: .92rem;
+  border-radius: 8px; box-shadow: 0 6px 16px color-mix(in srgb, var(--amber) 28%, transparent);
+}
+
+/* ---------- summary cards ---------- */
+[data-page="maintenance-repairs"] .mr-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+[data-page="maintenance-repairs"] .mr-stat {
+  --mr-tone: var(--info);
+  min-width: 0; padding: 16px; border: 1px solid color-mix(in srgb, var(--mr-tone) 20%, var(--line));
+  border-left: 4px solid var(--mr-tone); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--mr-tone) 6%, var(--surface)); box-shadow: var(--shadow);
+}
+[data-page="maintenance-repairs"] .mr-stat--soon     { --mr-tone: var(--amber); }
+[data-page="maintenance-repairs"] .mr-stat--overdue  { --mr-tone: var(--bad); }
+[data-page="maintenance-repairs"] .mr-stat--progress { --mr-tone: var(--mr-violet); }
+[data-page="maintenance-repairs"] .mr-stat--cost     { --mr-tone: var(--mr-teal); }
+[data-page="maintenance-repairs"] .mr-stat__label { font-size: .82rem; font-weight: 600; color: var(--text); }
+[data-page="maintenance-repairs"] .mr-stat__value { margin: 4px 0 2px; font-size: 1.6rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere; }
+[data-page="maintenance-repairs"] .mr-stat__value--money { font-size: 1.25rem; }
+[data-page="maintenance-repairs"] .mr-stat__sub { font-size: .74rem; color: var(--text-2); }
+
+/* ---------- panels: upcoming, overdue, recent repairs ---------- */
+[data-page="maintenance-repairs"] .mr-panels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+[data-page="maintenance-repairs"] .mr-panel { --mr-tone: var(--amber); padding: 14px 16px; border-top: 3px solid var(--mr-tone); min-width: 0; }
+[data-page="maintenance-repairs"] .mr-panel--overdue { --mr-tone: var(--bad); }
+[data-page="maintenance-repairs"] .mr-panel--done { --mr-tone: var(--good); }
+[data-page="maintenance-repairs"] .mr-panel__title { margin: 0 0 8px; font-size: .92rem; font-weight: 700; color: var(--text); }
+[data-page="maintenance-repairs"] .mr-panel__title small { font-weight: 500; color: var(--text-3); font-size: .74rem; }
+[data-page="maintenance-repairs"] .mr-panel__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+[data-page="maintenance-repairs"] .mr-panel__item {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
+  background: none; font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+[data-page="maintenance-repairs"] .mr-panel__item:hover { background: var(--paper); }
+[data-page="maintenance-repairs"] .mr-panel__item:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+[data-page="maintenance-repairs"] .mr-panel__name { font-weight: 600; font-size: .86rem; color: var(--text); }
+[data-page="maintenance-repairs"] .mr-panel__line { font-size: .76rem; color: var(--text-2); }
+[data-page="maintenance-repairs"] .mr-panel__empty { padding: 8px 10px; font-size: .82rem; color: var(--text-3); }
+
+/* ---------- list card, toolbar ---------- */
+[data-page="maintenance-repairs"] .mr-section-title { margin: 0; padding: 16px 16px 0; font-size: 1.05rem; font-weight: 700; color: var(--text); }
+[data-page="maintenance-repairs"] .mr-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 16px 16px; }
+[data-page="maintenance-repairs"] .mr-search { position: relative; flex: 1 1 260px; min-width: 220px; }
+[data-page="maintenance-repairs"] .mr-search svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+[data-page="maintenance-repairs"] .mr-search .input { width: 100%; height: 42px; padding-left: 42px; }
+[data-page="maintenance-repairs"] .mr-select { width: 170px; height: 42px; }
+[data-page="maintenance-repairs"] .mr-date { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--text-2); }
+[data-page="maintenance-repairs"] .mr-date .input { height: 42px; width: 150px; }
+[data-page="maintenance-repairs"] .mr-btn { height: 42px; padding: 0 16px; color: var(--text); background: var(--surface); }
+
+/* ---------- loading / empty / error ---------- */
+[data-page="maintenance-repairs"] .mr-state { border-top: 1px solid var(--line); }
+[data-page="maintenance-repairs"] .mr-state:empty { display: none; }
+[data-page="maintenance-repairs"] .mr-state__box { padding: 44px 20px; }
+[data-page="maintenance-repairs"] .mr-state__box--bad h3 { color: var(--bad); }
+[data-page="maintenance-repairs"] .mr-skeleton { display: grid; gap: 10px; padding: 18px 16px; }
+[data-page="maintenance-repairs"] .mr-skeleton__row {
+  display: block; height: 44px; border-radius: 8px;
+  background: linear-gradient(90deg, var(--paper) 25%, color-mix(in srgb, var(--line) 60%, var(--paper)) 50%, var(--paper) 75%);
+  background-size: 200% 100%; animation: mr-shimmer 1.2s linear infinite;
+}
+@keyframes mr-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { [data-page="maintenance-repairs"] .mr-skeleton__row { animation: none; } }
+
+/* ---------- table ---------- */
+[data-page="maintenance-repairs"] .mr-table-wrap { border-top: 1px solid var(--line); }
+[data-page="maintenance-repairs"] .mr-table th {
+  padding: 12px 10px; font-size: .76rem; font-weight: 600; color: var(--text-2); letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
+  background: color-mix(in srgb, var(--paper) 70%, var(--surface));
+}
+[data-page="maintenance-repairs"] .mr-table td { padding: 12px 10px; font-size: .86rem; color: var(--text); vertical-align: middle; }
+[data-page="maintenance-repairs"] .mr-table th:first-child, [data-page="maintenance-repairs"] .mr-table td:first-child { padding-left: 16px; }
+[data-page="maintenance-repairs"] .mr-table th:last-child, [data-page="maintenance-repairs"] .mr-table td:last-child { padding-right: 16px; }
+[data-page="maintenance-repairs"] .mr-table tbody tr:hover { background: color-mix(in srgb, var(--paper) 55%, transparent); }
+[data-page="maintenance-repairs"] .mr-th-actions, [data-page="maintenance-repairs"] .mr-c-actions { text-align: right; width: 1%; }
+[data-page="maintenance-repairs"] .mr-c-code { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-2); }
+[data-page="maintenance-repairs"] .mr-c-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+[data-page="maintenance-repairs"] .mr-nowrap { white-space: nowrap; }
+[data-page="maintenance-repairs"] .mr-nowrap .mr-sub { display: block; }
+[data-page="maintenance-repairs"] .mr-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+[data-page="maintenance-repairs"] .mr-item__name {
+  padding: 0; border: 0; background: none; font: inherit; font-weight: 600; font-size: .9rem; color: var(--text); text-align: left; cursor: pointer;
+}
+[data-page="maintenance-repairs"] .mr-item__name:hover { color: var(--amber-text); text-decoration: underline; }
+[data-page="maintenance-repairs"] .mr-sub { font-size: .76rem; font-weight: 400; color: var(--text-2); }
+[data-page="maintenance-repairs"] .mr-none { color: var(--text-3); }
+[data-page="maintenance-repairs"] .mr-row--muted { opacity: .7; }
+
+/* ---------- badges ---------- */
+[data-page="maintenance-repairs"] .mr-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
+[data-page="maintenance-repairs"] .mr-badge:not(.mr-badge--plain)::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+[data-page="maintenance-repairs"] .mr-badge--info   { background: var(--info-soft); color: var(--info); }
+[data-page="maintenance-repairs"] .mr-badge--warn   { background: var(--amber-soft); color: var(--amber-text); }
+[data-page="maintenance-repairs"] .mr-badge--bad    { background: var(--bad-soft); color: var(--bad); }
+[data-page="maintenance-repairs"] .mr-badge--violet { background: var(--mr-violet-soft); color: var(--mr-violet); }
+[data-page="maintenance-repairs"] .mr-badge--good   { background: var(--good-soft); color: var(--good); }
+[data-page="maintenance-repairs"] .mr-badge--none   { background: var(--paper); color: var(--text-2); border: 1px solid var(--line); }
+
+/* ---------- row actions ---------- */
+[data-page="maintenance-repairs"] .mr-actions { display: inline-flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+[data-page="maintenance-repairs"] .mr-table .mr-actions { flex-wrap: nowrap; }
+[data-page="maintenance-repairs"] .mr-act {
+  width: 34px; height: 34px; display: inline-grid; place-items: center; border: 1px solid var(--line-strong, var(--line));
+  border-radius: 8px; background: var(--surface); color: var(--text-2); cursor: pointer;
+}
+[data-page="maintenance-repairs"] .mr-act:hover { border-color: var(--text-3); color: var(--text); background: var(--paper); }
+[data-page="maintenance-repairs"] .mr-act--good:hover { border-color: var(--good); color: var(--good); }
+[data-page="maintenance-repairs"] .mr-act--warn:hover { border-color: var(--amber); color: var(--amber-text); }
+[data-page="maintenance-repairs"] .mr-act--danger:hover { border-color: var(--bad); color: var(--bad); }
+[data-page="maintenance-repairs"] .mr-act:focus-visible, [data-page="maintenance-repairs"] .mr-item__name:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* ---------- mobile cards ---------- */
+[data-page="maintenance-repairs"] .mr-cards { list-style: none; margin: 0; padding: 12px; border-top: 1px solid var(--line); display: none; gap: 12px; }
+[data-page="maintenance-repairs"] .mr-card { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; background: var(--surface); }
+[data-page="maintenance-repairs"] .mr-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+[data-page="maintenance-repairs"] .mr-card__facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 0 0 12px; }
+[data-page="maintenance-repairs"] .mr-card__facts dt { font-size: .7rem; color: var(--text-3); text-transform: uppercase; letter-spacing: .03em; }
+[data-page="maintenance-repairs"] .mr-card__facts dd { margin: 2px 0 0; font-size: .85rem; color: var(--text); overflow-wrap: anywhere; }
+[data-page="maintenance-repairs"] .mr-card .mr-actions { width: 100%; }
+
+/* ---------- footer / pager ---------- */
+[data-page="maintenance-repairs"] .mr-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-top: 1px solid var(--line); font-size: .84rem; color: var(--text-2);
+}
+[data-page="maintenance-repairs"] .mr-pager { display: flex; align-items: center; gap: 8px; }
+[data-page="maintenance-repairs"] .mr-page {
+  min-width: 36px; height: 36px; padding: 0 10px; border: 1px solid var(--line-strong, var(--line)); border-radius: 8px;
+  background: var(--surface); font: inherit; font-size: 1.05rem; font-weight: 600; color: var(--text); cursor: pointer;
+}
+[data-page="maintenance-repairs"] .mr-page:disabled { opacity: .45; cursor: default; }
+[data-page="maintenance-repairs"] .mr-page-label { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---------- forms and details (inside the shared modal) ---------- */
+[data-page="maintenance-repairs"] .mr-form__note { margin: 0 0 14px; font-size: .86rem; color: var(--text-2); }
+[data-page="maintenance-repairs"] .mr-hint { display: block; margin-top: 4px; font-size: .74rem; color: var(--text-3); }
+[data-page="maintenance-repairs"] .mr-check { display: flex; align-items: flex-start; gap: 8px; font-size: .88rem; color: var(--text); }
+[data-page="maintenance-repairs"] .mr-check input { margin-top: 3px; }
+[data-page="maintenance-repairs"] [aria-invalid="true"] { border-color: var(--bad); }
+[data-page="maintenance-repairs"] .btn--danger-ghost { background: transparent; border: 1px solid var(--bad); color: var(--bad); }
+[data-page="maintenance-repairs"] .btn--danger-ghost:hover { background: var(--bad-soft); }
+[data-page="maintenance-repairs"] .mr-modal .modal__foot { gap: 8px; flex-wrap: wrap; }
+[data-page="maintenance-repairs"] .mr-modal .modal__foot [data-modal-close] { margin-right: auto; }
+[data-page="maintenance-repairs"] .mr-detail__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+[data-page="maintenance-repairs"] .mr-detail__id { font-size: 1.05rem; font-weight: 700; color: var(--text); }
+[data-page="maintenance-repairs"] .mr-detail__badges { display: flex; gap: 6px; flex-wrap: wrap; }
+[data-page="maintenance-repairs"] .mr-detail__h { margin: 16px 0 8px; font-size: .78rem; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+[data-page="maintenance-repairs"] .mr-detail__text { margin: 0; white-space: pre-wrap; font-size: .88rem; color: var(--text); overflow-wrap: anywhere; }
+[data-page="maintenance-repairs"] .mr-note { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--paper); border: 1px solid var(--line); font-size: .85rem; color: var(--text-2); }
+[data-page="maintenance-repairs"] .mr-history { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: .86rem; color: var(--text); }
+[data-page="maintenance-repairs"] .mr-history li { overflow-wrap: anywhere; }
+[data-page="maintenance-repairs"] .mr-history .mr-sub { display: block; }
+[data-page="maintenance-repairs"] .mr-history__what { font-weight: 600; }
+
+/* ---------- smaller screens ---------- */
+@media (max-width: 1500px) {
+  /* Priority and Record step aside on a laptop with the sidebar open; both stay in Details and on the cards. */
+  [data-page="maintenance-repairs"] .mr-table th:nth-child(1), [data-page="maintenance-repairs"] .mr-table td:nth-child(1),
+  [data-page="maintenance-repairs"] .mr-table th:nth-child(6), [data-page="maintenance-repairs"] .mr-table td:nth-child(6) { display: none; }
+}
+@media (max-width: 1300px) {
+  [data-page="maintenance-repairs"] .mr-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1024px) {
+  /* Tablets: the cards take over from the table. */
+  [data-page="maintenance-repairs"] .mr-table-wrap { display: none !important; }
+  [data-page="maintenance-repairs"] .mr-cards:not([hidden]) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  [data-page="maintenance-repairs"] .mr-panels { grid-template-columns: 1fr; }
+  [data-page="maintenance-repairs"] .mr-select { flex: 1 1 calc(50% - 10px); width: auto; }
+  [data-page="maintenance-repairs"] .mr-search { flex-basis: 100%; }
+}
+@media (max-width: 760px) {
+  [data-page="maintenance-repairs"] .mr-cards:not([hidden]) { grid-template-columns: 1fr; }
+  [data-page="maintenance-repairs"] .mr-date { flex: 1 1 calc(50% - 5px); }
+  [data-page="maintenance-repairs"] .mr-date .input { width: 100%; min-width: 0; }
+  [data-page="maintenance-repairs"] .mr-btn { flex-basis: 100%; }
+}
+@media (max-width: 640px) {
+  [data-page="maintenance-repairs"] .mr-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  [data-page="maintenance-repairs"] .mr-head { flex-wrap: wrap; }
+  [data-page="maintenance-repairs"] .mr-add { margin-left: 0; width: 100%; justify-content: center; }
+  [data-page="maintenance-repairs"] .mr-stat { padding: 12px 14px; }
+  [data-page="maintenance-repairs"] .mr-stat__value { font-size: 1.35rem; }
+  [data-page="maintenance-repairs"] .mr-stat__value--money { font-size: 1.1rem; }
+  [data-page="maintenance-repairs"] .mr-stat__sub { display: none; }
+  [data-page="maintenance-repairs"] .mr-foot { justify-content: center; }
+  [data-page="maintenance-repairs"] .mr-modal .form-grid { grid-template-columns: 1fr; }
+  [data-page="maintenance-repairs"] .mr-modal .form-grid .span-2 { grid-column: auto; }
+  [data-page="maintenance-repairs"] .mr-modal .detail-grid { grid-template-columns: 1fr; }
+  [data-page="maintenance-repairs"] .mr-modal .detail-grid .span-2 { grid-column: auto; }
+}
+@media (max-width: 420px) {
+  [data-page="maintenance-repairs"] .mr-select, [data-page="maintenance-repairs"] .mr-date { flex-basis: 100%; }
+  [data-page="maintenance-repairs"] .mr-card__facts { grid-template-columns: 1fr; }
 }

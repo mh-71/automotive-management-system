@@ -71,7 +71,7 @@ self.TAQWA_ASSETS = [
   "/js/inventory.js",
   "/js/invoices.js",
   "/js/job-cards.js",
-  "/js/maintenance-repairs-ui.js",
+  "/js/maintenance-repairs.js",
   "/js/mechanics.js",
   "/js/notifications-ui.js",
   "/js/offline-sync.js",

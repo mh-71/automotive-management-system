@@ -144,6 +144,10 @@ import { getWebsiteBookings } from './routes/website-bookings.js';
 import {
   publicBookingSubmit, listBookings, getBooking, createBooking, updateBooking, setBookingStatus, addBookingNote,
 } from './routes/bookings.js';
+import {
+  listToolMaintenance, getToolMaintenance, createToolMaintenance, updateToolMaintenance,
+  setToolMaintenanceStatus, deleteToolMaintenance,
+} from './routes/tool-maintenance.js';
 // Notifications Center (0017): the API, and the router-level wrapper that turns
 // a successful create/status change into a notification (lib/notifications.js).
 import { notifications, NOTIFICATION_ROUTES } from './routes/notifications.js';
@@ -294,6 +298,13 @@ const COLLECTIONS = {
     list: listTools, detail: getTool,
     create: createTool, update: updateTool, remove: deleteTool,
     actions: { retire: retireTool, reactivate: reactivateTool },
+  },
+  // Maintenance & Repairs (0024): jobs on the equipment above. Delete only for a
+  // job entered by mistake (Scheduled or Cancelled); finished work is kept.
+  'tool-maintenance': {
+    list: listToolMaintenance, detail: getToolMaintenance,
+    create: createToolMaintenance, update: updateToolMaintenance, remove: deleteToolMaintenance,
+    actions: { status: setToolMaintenanceStatus },
   },
   roles: {
     list: listRoles, detail: getRole,

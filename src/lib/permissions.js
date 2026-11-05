@@ -183,6 +183,8 @@ export const COLLECTION_PERMISSIONS = {
   'website-forms': { view: 'inbox.view', update: 'inbox.edit' },
   bookings: { view: 'bookings.view', create: 'bookings.create', update: 'bookings.edit', actions: { status: 'bookings.manage', notes: 'bookings.edit' } },
   tools: { view: 'tools.view', create: 'tools.create', update: 'tools.edit', remove: 'tools.delete', actions: { retire: 'tools.manage', reactivate: 'tools.manage' } },
+  // Maintenance & Repairs (0024): part of Workshop Assets, so its permissions -- no new ones.
+  'tool-maintenance': { view: 'tools.view', create: 'tools.edit', update: 'tools.edit', remove: 'tools.delete', actions: { status: 'tools.edit' } },
   roles: { view: 'roles.view', create: 'roles.create', update: 'roles.edit', remove: 'roles.delete' },
 };
 

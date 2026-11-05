@@ -663,7 +663,7 @@ for (const [path, method, body] of [
   ok_('health advertises all four new routes',
     ['POST /api/invoices', 'PUT /api/invoices/:id', 'DELETE /api/invoices/:id',
       'POST /api/invoices/:id/void'].every((r) => routes.includes(r)), routes);
-  check('   ...and the registry is 174 routes', routes.length, 174);
+  check('   ...and the registry is 180 routes', routes.length, 180);
   ok_('   ...with no PUT or DELETE on the void path',
     !routes.includes('PUT /api/invoices/:id/void')
       && !routes.includes('DELETE /api/invoices/:id/void'), routes);

@@ -177,7 +177,8 @@ function seed(h) {
   try { h.DB.raw.exec(readFileSync(join(ROOT, 'migrations', '0023_bookings.sql'), 'utf8')); } catch (e) { again = e.message; }
   check('the migration is re-runnable', again, 'ok');
   const before = new DatabaseSync(':memory:');
-  for (const f of MIGRATIONS.filter((f) => f.slice(0, 4) < '0023')) before.exec(readFileSync(join(ROOT, 'migrations', f), 'utf8'));
+  // Every migration except 0023 itself, so a later one (0024 ...) is on both sides.
+  for (const f of MIGRATIONS.filter((f) => f.slice(0, 4) !== '0023')) before.exec(readFileSync(join(ROOT, 'migrations', f), 'utf8'));
   const shape = (db) => JSON.stringify(db.prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE '%booking%' ORDER BY name").all());
   check('0023 is additive: every other table and index is unchanged', shape(h.DB.raw) === shape(before), true);
   const perms = (role) => h.all('SELECT permission FROM role_permissions WHERE role_id = ? AND permission LIKE \'bookings.%\' ORDER BY permission', role).map((r) => r.permission);

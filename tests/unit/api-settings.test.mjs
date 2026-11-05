@@ -415,7 +415,7 @@ console.log('\n-- 14. Route registration --');
   const b = await res.json();
   const routes = b.data.routes;
 
-  check('health advertises 174 routes', routes.length, 174);
+  check('health advertises 180 routes', routes.length, 180);
   ok_('advertises GET /api/settings', routes.includes('GET /api/settings'));
   ok_('does NOT advertise a settings detail route', !routes.includes('GET /api/settings/:id'));
   // Was "every route is a GET" through Phase B. C-2 made that false by
@@ -424,8 +424,8 @@ console.log('\n-- 14. Route registration --');
   {
     const byMethod = {};
     routes.forEach((r) => { const m = r.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    check('71 GET, 65 POST, 24 PUT, 14 DELETE (0023 bookings, 0021 equipment delete and reactivate, 0020 added offline sync)', byMethod,
-      { GET: 71, POST: 65, PUT: 24, DELETE: 14 });
+    check('73 GET, 67 POST, 25 PUT, 15 DELETE (0024 maintenance, 0023 bookings, 0021 equipment delete and reactivate, 0020 added offline sync)', byMethod,
+      { GET: 73, POST: 67, PUT: 25, DELETE: 15 });
     ok_('no other method is advertised',
       routes.every((r) => ['GET', 'POST', 'PUT', 'DELETE'].includes(r.split(' ')[0])));
     check('settings offers a read and a write, and nothing else',
@@ -469,11 +469,11 @@ console.log('\n-- 15. The existing ten collections are untouched --');
   // order. C-2 interleaved write routes between them but removed none.
   {
     const gets = routes.filter((r) => r.startsWith('GET '));
-    check('all 71 GET routes survive, in order', gets, [
+    check('all 73 GET routes survive, in order', gets, [
       'GET /api/health',
       ...['customers', 'vehicles', 'services', 'mechanics', 'parts', 'appointments',
         'job-cards', 'invoices', 'payments', 'invoice-adjustments', 'expenses', 'inventory-transactions',
-        'follow-ups', 'follow-up-contacts', 'follow-up-tasks', 'estimates', 'staff', 'accounts', 'attendance', 'leave-requests', 'activity-log', 'website-forms', 'bookings', 'tools', 'roles']
+        'follow-ups', 'follow-up-contacts', 'follow-up-tasks', 'estimates', 'staff', 'accounts', 'attendance', 'leave-requests', 'activity-log', 'website-forms', 'bookings', 'tools', 'tool-maintenance', 'roles']
         .flatMap((n) => [`GET /api/${n}`, `GET /api/${n}/:id`]),
       'GET /api/messenger/conversations', 'GET /api/messenger/conversations/:id', 'GET /api/messenger/conversations/:id/messages',
       'GET /api/webhooks/messenger',

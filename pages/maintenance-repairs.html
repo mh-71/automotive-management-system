@@ -18,7 +18,6 @@
   <link rel="stylesheet" href="../css/components.css">
   <link rel="stylesheet" href="../css/dashboard.css">
   <link rel="stylesheet" href="../css/responsive.css">
-  <link rel="stylesheet" href="../css/workshop-assets-demo.css">
   <link rel="stylesheet" href="../css/maintenance-repairs.css">
   <!-- Hold the first paint until app.js has drawn the shell (marker at the end
        of <body>), so a page change never shows a frame without the sidebar
@@ -38,12 +37,69 @@
 
   <div id="page-content">
 
-    <!-- DEMO PAGE, UI ONLY. Drawn by js/workshop-assets-demo.js from the FICTIONAL sample data in
-         js/maintenance-repairs-ui.js. Nothing here reads or writes the workshop database or browser storage, makes a
-         request or sends anything: search and filters only change this page until it is reloaded, and
-         every form, assign, return, schedule and export action is a preview that saves nothing.
-         Maintenance schedules, repairs, costs and service history of workshop equipment. -->
-    <div id="adRoot" class="ad-root"></div>
+    <!-- Maintenance & Repairs. Filled in by js/maintenance-repairs.js from the workshop database
+         (GET /api/tool-maintenance, migration 0024): jobs on the equipment of the Tools & Equipment /
+         Equipment Inventory register (0013 + 0021). When the database cannot be read the page says so;
+         it never shows sample or browser-stored data. -->
+
+    <div class="mr-head">
+      <span class="mr-head__icon"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg></span>
+      <div class="mr-head__text">
+        <h2 class="mr-head__title">Maintenance &amp; Repairs</h2>
+        <p class="page-subtitle">Maintenance schedules, repairs, costs and service history of workshop equipment.</p>
+      </div>
+      <button type="button" class="btn btn--primary mr-add" id="mrAdd" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm-7-8h5v5h-5z"/></svg><span>Schedule Maintenance</span></button>
+    </div>
+
+    <section class="mr-stats" aria-label="Maintenance summary" aria-live="polite">
+      <div class="mr-stat mr-stat--total"><div class="mr-stat__label">Total Maintenance Records</div><div class="mr-stat__value" id="mrTotal">&#8212;</div><div class="mr-stat__sub" id="mrTotalSub">All jobs</div></div>
+      <div class="mr-stat mr-stat--soon"><div class="mr-stat__label">Due Soon</div><div class="mr-stat__value" id="mrSoon">&#8212;</div><div class="mr-stat__sub">Scheduled in the next 14 days</div></div>
+      <div class="mr-stat mr-stat--overdue"><div class="mr-stat__label">Overdue Maintenance</div><div class="mr-stat__value" id="mrOverdue">&#8212;</div><div class="mr-stat__sub">Past their scheduled date</div></div>
+      <div class="mr-stat mr-stat--progress"><div class="mr-stat__label">In Progress</div><div class="mr-stat__value" id="mrProgress">&#8212;</div><div class="mr-stat__sub">Being worked on</div></div>
+      <div class="mr-stat mr-stat--cost"><div class="mr-stat__label">Total Maintenance Cost</div><div class="mr-stat__value mr-stat__value--money" id="mrCost">&#8212;</div><div class="mr-stat__sub" id="mrCostSub">Actual cost of completed work</div></div>
+    </section>
+
+    <section class="mr-panels" aria-label="Upcoming, overdue and recent work">
+      <div class="card mr-panel mr-panel--soon"><h3 class="mr-panel__title">Upcoming Maintenance <small>next 30 days</small></h3><ul class="mr-panel__list" id="mrUpcoming"></ul></div>
+      <div class="card mr-panel mr-panel--overdue"><h3 class="mr-panel__title">Overdue Maintenance</h3><ul class="mr-panel__list" id="mrOverduePanel"></ul></div>
+      <div class="card mr-panel mr-panel--done"><h3 class="mr-panel__title">Recent Repairs</h3><ul class="mr-panel__list" id="mrRecent"></ul></div>
+    </section>
+
+    <section class="card mr-card-list" aria-labelledby="mrListTitle">
+      <h2 class="mr-section-title" id="mrListTitle">Maintenance Schedule</h2>
+      <div class="mr-toolbar" role="search" aria-label="Find maintenance records">
+        <label class="mr-search">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="search" class="input" id="mrSearch" placeholder="Search equipment, type, technician or vendor&#8230;" aria-label="Search by equipment, maintenance type, technician, vendor or record id" autocomplete="off" maxlength="100">
+        </label>
+        <select class="select mr-select" id="mrStatus" aria-label="Filter by status"><option value="">All statuses</option></select>
+        <select class="select mr-select" id="mrType" aria-label="Filter by maintenance type"><option value="">All types</option></select>
+        <label class="mr-date"><span>From</span><input type="date" class="input" id="mrFrom" aria-label="Scheduled on or after"></label>
+        <label class="mr-date"><span>to</span><input type="date" class="input" id="mrTo" aria-label="Scheduled on or before"></label>
+        <button type="button" class="btn btn--ghost mr-btn" id="mrClear" hidden>Clear filters</button>
+      </div>
+
+      <div class="mr-state" id="mrState" role="status" aria-live="polite"></div>
+
+      <div class="table-wrap mr-table-wrap" id="mrTableWrap" hidden>
+        <table class="table mr-table">
+          <thead>
+            <tr><th scope="col">Record</th><th scope="col">Equipment</th><th scope="col">Maintenance Type</th><th scope="col">Scheduled</th><th scope="col">Technician / Vendor</th><th scope="col">Priority</th><th scope="col" class="mr-c-num">Cost</th><th scope="col">Status</th><th scope="col" class="mr-th-actions">Actions</th></tr>
+          </thead>
+          <tbody id="mrBody"></tbody>
+        </table>
+      </div>
+      <ul class="mr-cards" id="mrCards" hidden></ul>
+
+      <div class="mr-foot" id="mrFoot" hidden>
+        <span id="mrCount" aria-live="polite"></span>
+        <div class="mr-pager" role="group" aria-label="Pages">
+          <button type="button" class="mr-page" id="mrPrev" aria-label="Previous page">&#8249;</button>
+          <span class="mr-page-label" id="mrPageLabel"></span>
+          <button type="button" class="mr-page" id="mrNext" aria-label="Next page">&#8250;</button>
+        </div>
+      </div>
+    </section>
 
   </div>
 
@@ -55,8 +111,7 @@
   <script src="../js/storage.js"></script>
   <script src="../js/utils.js"></script>
   <script src="../js/app.js"></script>
-  <script src="../js/workshop-assets-demo.js"></script>
-  <script src="../js/maintenance-repairs-ui.js"></script>
+  <script src="../js/maintenance-repairs.js"></script>
   <span id="shell-drawn" hidden></span>
 </body>
 </html>
