@@ -39,9 +39,10 @@ console.log('-- 1. not a demo --');
   check('every element id the script reads is in the markup', ids.filter((id) => !html.includes(`id="${id}"`)), []);
   ok('the page keeps the shared head (theme, render hold) and data-page', html.includes('<body data-page="asset-assignment" data-root="../">') && html.includes('blocking="render"') && html.includes('taqwa_theme'), '');
   ok('every stylesheet rule is scoped to this page', css.split('\n').filter((l) => /^[^\s@/}].*\{/.test(l)).every((l) => l.startsWith('[data-page="asset-assignment"]')), '');
+  // Asset History and Asset Reports became real pages too (asset-history-ui / asset-reports-ui tests).
   for (const p of ['asset-history', 'asset-reports']) {
     const h = read(`pages/${p}.html`);
-    ok(`${p} is untouched: still the demo engine and its own script`, h.includes('workshop-assets-demo.js') && h.includes(`${p}-ui.js`) && h.includes('workshop-assets-demo.css'), '');
+    ok(`${p} loads its own real script, not the demo engine`, h.includes(`../js/${p}.js`) && !h.includes('workshop-assets-demo'), '');
   }
   ok('Maintenance & Repairs still loads its own real page', read('pages/maintenance-repairs.html').includes('../js/maintenance-repairs.js'), '');
 }

@@ -152,6 +152,8 @@ import {
   listToolAssignments, getToolAssignment, createToolAssignment, updateToolAssignment,
   returnToolAssignment, cancelToolAssignment,
 } from './routes/tool-assignments.js';
+import { listAssetHistory, getAssetHistory } from './routes/asset-history.js';
+import { getAssetReports, getAssetReport } from './routes/asset-reports.js';
 // Notifications Center (0017): the API, and the router-level wrapper that turns
 // a successful create/status change into a notification (lib/notifications.js).
 import { notifications, NOTIFICATION_ROUTES } from './routes/notifications.js';
@@ -317,6 +319,11 @@ const COLLECTIONS = {
     create: createToolAssignment, update: updateToolAssignment,
     actions: { return: returnToolAssignment, cancel: cancelToolAssignment },
   },
+  // Asset History: a read-only timeline built from the Workshop Assets
+  // records above (tools, tool_events, tool_maintenance). Writes nothing.
+  'asset-history': { list: listAssetHistory, detail: getAssetHistory },
+  // Asset Reports: read-only figures from tools and tool_maintenance. Writes nothing.
+  'asset-reports': { list: getAssetReports, detail: getAssetReport },
   roles: {
     list: listRoles, detail: getRole,
     create: createRole, update: updateRole, remove: deleteRole,

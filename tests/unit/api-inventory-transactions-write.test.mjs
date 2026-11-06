@@ -422,7 +422,7 @@ console.log('\n-- 12. Routing, and the GET route is unchanged --');
     },
   };
   const routes = (await (await call('/api/health', { DB: db }, 'GET')).json()).data.routes;
-  check('the registry advertises 186 routes', routes.length, 186);
+  check('the registry advertises 190 routes', routes.length, 190);
   ok_('advertises POST /api/inventory-transactions', routes.includes('POST /api/inventory-transactions'));
   ok_('advertises no PUT for the ledger', !routes.includes('PUT /api/inventory-transactions/:id'));
   ok_('advertises no DELETE for the ledger', !routes.includes('DELETE /api/inventory-transactions/:id'));
@@ -431,7 +431,7 @@ console.log('\n-- 12. Routing, and the GET route is unchanged --');
 
   const byMethod = {};
   routes.forEach((r) => { const m = r.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-  check('75 GET, 70 POST, 26 PUT, 15 DELETE (0025 assignments, 0024 maintenance, 0023 bookings, 0021 equipment delete and reactivate, 0005 added follow-ups, 0006 follow-up tasks, 0007 estimates, 0008 staff, 0009 accounts, 0010 attendance, 0011 leave requests, 0012 the activity log, 0013 tools, 0014 Messenger, 0015 WhatsApp, 0016 Website Forms, 0017 Notifications, 0018 Roles, 0019 individual login, 0020 offline sync)', byMethod, { GET: 75, POST: 70, PUT: 26, DELETE: 15 });
+  check('79 GET, 70 POST, 26 PUT, 15 DELETE (Asset Reports, Asset History, 0025 assignments, 0024 maintenance, 0023 bookings, 0021 equipment delete and reactivate, 0005 added follow-ups, 0006 follow-up tasks, 0007 estimates, 0008 staff, 0009 accounts, 0010 attendance, 0011 leave requests, 0012 the activity log, 0013 tools, 0014 Messenger, 0015 WhatsApp, 0016 Website Forms, 0017 Notifications, 0018 Roles, 0019 individual login, 0020 offline sync)', byMethod, { GET: 79, POST: 70, PUT: 26, DELETE: 15 });
 
   // The read route must not have gained any stock arithmetic.
   const readDb = stubDB({});
