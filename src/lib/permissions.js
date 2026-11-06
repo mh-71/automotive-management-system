@@ -189,6 +189,8 @@ export const COLLECTION_PERMISSIONS = {
   'tool-assignments': { view: 'tools.view', create: 'tools.edit', update: 'tools.edit', actions: { return: 'tools.edit', cancel: 'tools.edit' } },
   // Asset History: read only, so only the existing Workshop Assets "view".
   'asset-history': { view: 'tools.view' },
+  // Asset Reports: read only, so only the existing Workshop Assets "view".
+  'asset-reports': { view: 'tools.view' },
   roles: { view: 'roles.view', create: 'roles.create', update: 'roles.edit', remove: 'roles.delete' },
 };
 

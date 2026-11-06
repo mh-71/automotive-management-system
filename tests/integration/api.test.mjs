@@ -63,12 +63,12 @@ sec('1. Health');
   t('database reachable', r.body?.data?.database?.reachable === true);
   t('migrated', r.body?.data?.database?.migrated === true);
   const routes = r.body?.data?.routes ?? [];
-  t('advertises 188 routes', routes.length === 188, routes);
+  t('advertises 190 routes', routes.length === 190, routes);
   {
     const byMethod = {};
     routes.forEach((r2) => { const m = r2.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-    t('77 GET, 70 POST, 26 PUT, 15 DELETE (0020 added offline sync; 0021 equipment delete and reactivate; 0023 bookings; 0024 maintenance; 0025 assignments; Asset History)',
-      JSON.stringify(byMethod) === JSON.stringify({ GET: 77, POST: 70, PUT: 26, DELETE: 15 }), byMethod);
+    t('79 GET, 70 POST, 26 PUT, 15 DELETE (0020 added offline sync; 0021 equipment delete and reactivate; 0023 bookings; 0024 maintenance; 0025 assignments; Asset History; Asset Reports)',
+      JSON.stringify(byMethod) === JSON.stringify({ GET: 79, POST: 70, PUT: 26, DELETE: 15 }), byMethod);
   }
   t('advertises services list', routes.includes('GET /api/services'));
   t('advertises services detail', routes.includes('GET /api/services/:id'));

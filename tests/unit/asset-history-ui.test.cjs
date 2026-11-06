@@ -41,7 +41,7 @@ console.log('-- 1. not a demo, same look --');
   ok('every stylesheet rule is scoped to this page', css.split('\n').filter((l) => /^\s*[.#\[a-z].*\{/.test(l) && !/^\s*(from|to)\s*\{/.test(l)).every((l) => l.trim().startsWith('[data-page="asset-history"]')), '');
   ok('the page keeps the shared head (theme, render hold) and data-page', html.includes('<body data-page="asset-history" data-root="../">') && html.includes('blocking="render"') && html.includes('taqwa_theme'), '');
   const ar = read('pages/asset-reports.html');
-  ok('Asset Reports is untouched: still the demo engine and its own script', ar.includes('workshop-assets-demo.js') && ar.includes('asset-reports-ui.js') && ar.includes('workshop-assets-demo.css'), '');
+  ok('Asset Reports loads its own real script (it became real after this page)', ar.includes('../js/asset-reports.js') && !ar.includes('workshop-assets-demo'), '');
 }
 
 console.log('\n-- 2. the list query --');

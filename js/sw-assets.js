@@ -54,6 +54,7 @@ self.TAQWA_ASSETS = [
   "/js/asset-history-ui.js",
   "/js/asset-history.js",
   "/js/asset-reports-ui.js",
+  "/js/asset-reports.js",
   "/js/crm-follow-up.js",
   "/js/crm-history.js",
   "/js/crm-reminders.js",

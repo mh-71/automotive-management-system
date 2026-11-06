@@ -539,14 +539,14 @@ console.log('\n-- 14. Routing --');
     },
   };
   const routes = (await (await call('/api/health', { DB: db }, 'GET')).json()).data.routes;
-  check('the registry advertises 188 routes', routes.length, 188);
+  check('the registry advertises 190 routes', routes.length, 190);
   for (const r of ['GET /api/appointments', 'POST /api/appointments', 'GET /api/appointments/:id',
     'PUT /api/appointments/:id', 'DELETE /api/appointments/:id']) {
     ok_(`advertises ${r}`, routes.includes(r), routes.filter((x) => x.includes('appointments')));
   }
   const byMethod = {};
   routes.forEach((r) => { const m = r.split(' ')[0]; byMethod[m] = (byMethod[m] || 0) + 1; });
-  check('77 GET, 70 POST, 26 PUT, 15 DELETE (Asset History, 0025 assignments, 0024 maintenance, 0023 bookings, 0021 equipment delete and reactivate, 0005 added follow-ups, 0006 follow-up tasks, 0007 estimates, 0008 staff, 0009 accounts, 0010 attendance, 0011 leave requests, 0012 the activity log, 0013 tools, 0014 Messenger, 0015 WhatsApp, 0016 Website Forms, 0017 Notifications, 0018 Roles, 0019 individual login, 0020 offline sync)', byMethod, { GET: 77, POST: 70, PUT: 26, DELETE: 15 });
+  check('79 GET, 70 POST, 26 PUT, 15 DELETE (Asset Reports, Asset History, 0025 assignments, 0024 maintenance, 0023 bookings, 0021 equipment delete and reactivate, 0005 added follow-ups, 0006 follow-up tasks, 0007 estimates, 0008 staff, 0009 accounts, 0010 attendance, 0011 leave requests, 0012 the activity log, 0013 tools, 0014 Messenger, 0015 WhatsApp, 0016 Website Forms, 0017 Notifications, 0018 Roles, 0019 individual login, 0020 offline sync)', byMethod, { GET: 79, POST: 70, PUT: 26, DELETE: 15 });
 
   const patchList = await call('/api/appointments', { DB: stubDB() }, 'PATCH', {});
   check('PATCH on the list -> 405', patchList.status, 405);
