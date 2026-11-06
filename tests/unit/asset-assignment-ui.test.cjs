@@ -39,7 +39,8 @@ console.log('-- 1. not a demo --');
   check('every element id the script reads is in the markup', ids.filter((id) => !html.includes(`id="${id}"`)), []);
   ok('the page keeps the shared head (theme, render hold) and data-page', html.includes('<body data-page="asset-assignment" data-root="../">') && html.includes('blocking="render"') && html.includes('taqwa_theme'), '');
   ok('every stylesheet rule is scoped to this page', css.split('\n').filter((l) => /^[^\s@/}].*\{/.test(l)).every((l) => l.startsWith('[data-page="asset-assignment"]')), '');
-  for (const p of ['asset-history', 'asset-reports']) {
+  // Asset History became a real page too (asset-history-ui.test.cjs).
+  for (const p of ['asset-reports']) {
     const h = read(`pages/${p}.html`);
     ok(`${p} is untouched: still the demo engine and its own script`, h.includes('workshop-assets-demo.js') && h.includes(`${p}-ui.js`) && h.includes('workshop-assets-demo.css'), '');
   }

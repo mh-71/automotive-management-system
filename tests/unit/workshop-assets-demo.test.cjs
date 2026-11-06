@@ -1,8 +1,10 @@
-/* workshop-assets-demo — the two Workshop Assets demo pages.
+/* workshop-assets-demo — the remaining Workshop Assets demo page (Asset Reports).
    (Equipment Inventory left this list in 0021, Maintenance & Repairs in 0024
    and Asset Assignment in 0025: they are real pages now, covered by
    equipment-inventory-ui.test.cjs, maintenance-repairs-ui.test.cjs and
-   asset-assignment-ui.test.cjs.)
+   asset-assignment-ui.test.cjs; Asset History is a real page too, covered by
+   asset-history-ui.test.cjs. Its old sample script js/asset-history-ui.js is
+   kept, unused, and its sample data is still checked in section 4.)
 
    What must hold:
      1. Each page exists, loads the shared engine and its own script and
@@ -24,11 +26,10 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
 const PAGES = {
-  'asset-history': 'Asset History',
   'asset-reports': 'Asset Reports',
 };
 
-console.log('=== workshop-assets-demo: the two Workshop Assets demo pages ===\n');
+console.log('=== workshop-assets-demo: the remaining Workshop Assets demo page ===\n');
 
 console.log('-- 1. the pages --');
 const toolsHead = read('pages/workshop-tools.html').split('\n<body')[0];

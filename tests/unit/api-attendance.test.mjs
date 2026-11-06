@@ -326,9 +326,9 @@ console.log('\n-- F. compatibility --');
   check('recording attendance changes no other table', counts(), before);
   check('the staff roster still lists everyone', (await h.api('GET', '/api/staff')).body?.data?.length, 6);
   const routes = (await h.api('GET', '/api/health')).body?.data?.routes ?? [];
-  check('the registry holds the four attendance routes (186 with the leave routes of 0011, the activity log of 0012, the tools routes of 0013, the Messenger routes of 0014 the WhatsApp routes of 0015 the Notifications routes of 0017 the Roles routes of 0018 and the session routes of 0019)',
+  check('the registry holds the four attendance routes (188 with the leave routes of 0011, the activity log of 0012, the tools routes of 0013, the Messenger routes of 0014 the WhatsApp routes of 0015 the Notifications routes of 0017 the Roles routes of 0018 and the session routes of 0019)',
     [routes.length, routes.filter((r) => r.includes('/api/attendance'))],
-    [186, ['GET /api/attendance', 'POST /api/attendance', 'GET /api/attendance/:id', 'PUT /api/attendance/:id']]);
+    [188, ['GET /api/attendance', 'POST /api/attendance', 'GET /api/attendance/:id', 'PUT /api/attendance/:id']]);
   const del = await h.api('DELETE', '/api/mechanics/MEC-0004');
   check('deleting an unused mechanic (as before) takes its attendance with it', [del.status, h.one("SELECT count(*) AS n FROM attendance WHERE mechanic_id = 'MEC-0004'").n], [200, 0]);
   check('a mechanic with job cards still cannot be deleted, so their attendance stays', [(await h.api('DELETE', '/api/mechanics/MEC-0001')).status, h.one('SELECT count(*) AS n FROM attendance').n], [409, 1]);
